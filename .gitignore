@@ -1,0 +1,4 @@
+ingest_report.csv
+transcode_log.csv
+rename_log.csv
+*.DS_Store
