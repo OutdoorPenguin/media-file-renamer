@@ -47,6 +47,9 @@ Sends a formatted Slack summary after ingest — show, episode, clip count, code
 ### 📤 Exporters (`exporters.py`)
 Handles all export formats: CSV, ALE, FCP7 XML, FCPXML, EDL.
 
+### 🔐 Checksum Verifier (`checksum.py`)
+Generates and verifies MD5, xxHash, and SHA-256 checksums for media files. Checksums are stored in the database and can be verified later via the Verify Files button in the app to confirm files haven't been corrupted or changed.
+
 ### ⭐ Views (`views.py`)
 Saves and loads favorite filter combos in the app sidebar.
 
@@ -57,6 +60,7 @@ Saves and loads favorite filter combos in the app sidebar.
 - ffmpeg / ffprobe — `brew install ffmpeg`
 - `pip install watchdog pandas requests python-dotenv PyQt6 Pillow`
 - DB Browser for SQLite — https://sqlitebrowser.org/dl/
+- xxhash - `pip install watchdog pandas requests python-dotenv PyQt6 Pillow xxhash`
 
 ---
 
