@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
-DB_FILE = Path("/Users/rachmcintire/PycharmProjects/Claude/dailies.db")
+DB_FILE = Path("/Users/rachelmcintire/PycharmProjects/Claude/dailies.db")
 
 ALL_COLUMNS = [
     "id", "file_name", "show", "episode", "date_recorded",
@@ -24,7 +24,8 @@ ALL_COLUMNS = [
     "iso", "white_balance", "shutter_angle", "lens_type",
     "focal_length", "nd_filter", "location", "dop", "director",
     "production_company", "input_lut", "output_lut",
-    "cdl_slope", "cdl_offset", "cdl_power", "cdl_saturation", "status"
+    "cdl_slope", "cdl_offset", "cdl_power", "cdl_saturation",
+    "checksum_md5", "checksum_xxhash", "checksum_sha256", "status"
 ]
 
 DISPLAY_HEADERS = [
@@ -36,7 +37,8 @@ DISPLAY_HEADERS = [
     "ISO", "White Balance", "Shutter", "Lens",
     "Focal Length", "ND", "Location", "DOP", "Director",
     "Production Co", "Input LUT", "Output LUT",
-    "CDL Slope", "CDL Offset", "CDL Power", "CDL Sat", "Status"
+    "CDL Slope", "CDL Offset", "CDL Power", "CDL Sat",
+    "MD5", "xxHash", "SHA-256", "Status"
 ]
 
 class DailiesApp(QMainWindow):
@@ -69,6 +71,10 @@ class DailiesApp(QMainWindow):
         save_view_btn = QPushButton("Save View")
         save_view_btn.clicked.connect(self.save_view)
         toolbar.addWidget(save_view_btn)
+
+        verify_btn = QPushButton("Verify Files")
+        verify_btn.clicked.connect(self.verify_checksums)
+        toolbar.addWidget(verify_btn)
 
         # --- Main layout ---
         central_widget = QWidget()
@@ -218,7 +224,6 @@ class DailiesApp(QMainWindow):
         episode = self.episode_filter.currentText()
         camera = self.camera_filter.currentText()
 
-        # camera is column index 10 (camera_id)
         for row in range(self.clip_table.rowCount()):
             show_match = show == "All" or (self.clip_table.item(row, 2) and self.clip_table.item(row, 2).text() == show)
             episode_match = episode == "All" or (self.clip_table.item(row, 3) and self.clip_table.item(row, 3).text() == episode)
@@ -274,6 +279,10 @@ CDL Slope: {clip_data.get('cdl_slope', '')}
 CDL Offset: {clip_data.get('cdl_offset', '')}
 CDL Power: {clip_data.get('cdl_power', '')}
 CDL Saturation: {clip_data.get('cdl_saturation', '')}
+
+MD5: {clip_data.get('checksum_md5', '')}
+xxHash: {clip_data.get('checksum_xxhash', '')}
+SHA-256: {clip_data.get('checksum_sha256', '')}
             """
             self.details_label.setText(details.strip())
             self.color_label.setText(color.strip())
@@ -305,6 +314,8 @@ CDL Saturation: {clip_data.get('cdl_saturation', '')}
         if not ok2 or not episode:
             return
 
+        algorithm = self.ask_checksum_algorithm()
+
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         added = 0
@@ -325,13 +336,26 @@ CDL Saturation: {clip_data.get('cdl_saturation', '')}
             if info:
                 camera = file.name[0] if file.name else "unknown"
                 reel = file.name[:4] if len(file.name) >= 4 else "unknown"
+
+                checksum_md5 = checksum_xxhash = checksum_sha256 = None
+                if algorithm:
+                    from checksum import generate_checksum
+                    value = generate_checksum(file, algorithm)
+                    if algorithm == "md5":
+                        checksum_md5 = value
+                    elif algorithm == "xxhash":
+                        checksum_xxhash = value
+                    elif algorithm == "sha256":
+                        checksum_sha256 = value
+
                 cursor.execute("""
-                    INSERT INTO clips (file_name, show, episode, codec, resolution, fps, camera_id, reel, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO clips (file_name, show, episode, codec, resolution, fps,
+                        camera_id, reel, checksum_md5, checksum_xxhash, checksum_sha256, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     file.name, show, episode,
                     info["codec"], info["resolution"], info["fps"],
-                    camera, reel, "ok"
+                    camera, reel, checksum_md5, checksum_xxhash, checksum_sha256, "ok"
                 ))
                 added += 1
 
@@ -340,6 +364,18 @@ CDL Saturation: {clip_data.get('cdl_saturation', '')}
         self.load_clips()
         self.populate_filters()
         QMessageBox.information(self, "Ingest Complete", f"{added} clips added, {skipped} skipped.")
+
+    def ask_checksum_algorithm(self):
+        """Asks the user which checksum algorithm to use."""
+        algorithm, ok = QInputDialog.getItem(
+            self, "Checksum Algorithm",
+            "Generate checksums using:",
+            ["None", "MD5", "xxHash", "SHA-256"],
+            editable=False
+        )
+        if not ok:
+            return None
+        return None if algorithm == "None" else algorithm.lower().replace("-", "")
 
     def import_csv(self):
         """Opens a file picker to select a CSV and imports it."""
@@ -371,7 +407,6 @@ CDL Saturation: {clip_data.get('cdl_saturation', '')}
     def export_clips(self):
         """Opens export dialog to choose format, columns, and save location."""
         from exporters import export_csv, export_ale, export_fcp7_xml, export_fcpxml, export_edl
-        from PyQt6.QtWidgets import QCheckBox, QScrollArea, QGroupBox
 
         conn = sqlite3.connect(DB_FILE)
         conn.row_factory = sqlite3.Row
@@ -389,12 +424,10 @@ CDL Saturation: {clip_data.get('cdl_saturation', '')}
             QMessageBox.warning(self, "Export", "No clips to export.")
             return
 
-        # --- Column picker dialog ---
         col_dialog = QDialog(self)
         col_dialog.setWindowTitle("Choose Export Columns")
         col_dialog.setMinimumSize(400, 500)
         col_layout = QVBoxLayout(col_dialog)
-
         col_layout.addWidget(QLabel("Select columns to export:"))
 
         scroll = QScrollArea()
@@ -433,10 +466,8 @@ CDL Saturation: {clip_data.get('cdl_saturation', '')}
             QMessageBox.warning(self, "Export", "No columns selected.")
             return
 
-        # Filter clips to selected columns only
         filtered_clips = [{col: clip.get(col, "") for col in selected_columns} for clip in visible_clips]
 
-        # --- Format picker ---
         format_choice, ok = QInputDialog.getItem(
             self, "Export Format", "Choose format:",
             ["CSV", "ALE", "FCP7 XML", "FCPXML", "EDL"],
@@ -471,6 +502,69 @@ CDL Saturation: {clip_data.get('cdl_saturation', '')}
             export_edl(filtered_clips, file_path)
 
         QMessageBox.information(self, "Export Complete", f"Exported {len(filtered_clips)} clips to {file_path}")
+
+    def verify_checksums(self):
+        """Verifies checksums for all visible clips that have a stored checksum."""
+        from checksum import verify_checksum
+
+        file_path = QFileDialog.getExistingDirectory(
+            self, "Select folder containing media files"
+        )
+        if not file_path:
+            return
+
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM clips")
+        all_clips = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        visible_clips = []
+        for i, clip in enumerate(all_clips):
+            if not self.clip_table.isRowHidden(i):
+                visible_clips.append(clip)
+
+        results = []
+        for clip in visible_clips:
+            file_name = clip.get("file_name", "")
+            file = Path(file_path) / file_name
+
+            for algo, col in [("md5", "checksum_md5"), ("xxhash", "checksum_xxhash"), ("sha256", "checksum_sha256")]:
+                stored = clip.get(col)
+                if stored:
+                    ok, msg = verify_checksum(file, stored, algo)
+                    if ok is None:
+                        results.append(f"❓ {file_name} — file not found")
+                    elif ok:
+                        results.append(f"✅ {file_name} — {algo.upper()} OK")
+                    else:
+                        results.append(f"⚠️  {file_name} — {algo.upper()} FAILED: {msg}")
+                        choice = QMessageBox.question(
+                            self, "Checksum Mismatch",
+                            f"{file_name} failed {algo.upper()} verification.\n{msg}\n\nContinue verifying?",
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                        )
+                        if choice == QMessageBox.StandardButton.No:
+                            break
+
+        if not results:
+            QMessageBox.information(self, "Verify", "No clips with stored checksums found.")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Verification Report")
+        dialog.setMinimumSize(600, 400)
+        layout = QVBoxLayout(dialog)
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setText("\n".join(results))
+        layout.addWidget(text)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.close)
+        layout.addWidget(close_btn)
+        dialog.exec()
+
     def run_consistency_report(self):
         """Runs a consistency check on visible clips and shows a report."""
         conn = sqlite3.connect(DB_FILE)

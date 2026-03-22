@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 
 # --- SETTINGS ---
-DB_FILE = Path("/Users/rachmcintire/PycharmProjects/Claude/dailies.db")
+DB_FILE = Path("/Users/rachelmcintire/PycharmProjects/Claude/dailies.db")
 
 # --- Create database and table ---
 conn = sqlite3.connect(DB_FILE)
@@ -52,6 +52,9 @@ cursor.execute("""
         cdl_offset TEXT,
         cdl_power TEXT,
         cdl_saturation TEXT,
+        checksum_md5 TEXT,
+        checksum_xxhash TEXT,
+        checksum_sha256 TEXT,
         status TEXT
     )
 """)
