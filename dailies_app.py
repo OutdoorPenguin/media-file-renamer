@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QTableWidget, QTableWidgetItem,
     QComboBox, QPushButton, QFileDialog, QInputDialog,
     QMessageBox, QDialog, QTextEdit, QCheckBox, QScrollArea,
-    QProgressBar
+    QProgressBar, QSlider, QSpinBox, QGroupBox, QGridLayout
 )
 from PyQt6.QtCore import Qt
 
@@ -40,6 +40,17 @@ DISPLAY_HEADERS = [
     "Production Co", "Input LUT", "Output LUT",
     "CDL Slope", "CDL Offset", "CDL Power", "CDL Sat",
     "MD5", "xxHash", "SHA-256", "Status"
+]
+
+BURNIN_FIELDS = [
+    "Filename", "Timecode", "Reel", "Show", "Episode",
+    "Scene", "Camera", "Date", "Shoot Day", "Custom"
+]
+
+POSITIONS = [
+    "bottom_center", "bottom_left", "bottom_right",
+    "top_left", "top_center", "top_right",
+    "center_left", "center_center", "center_right"
 ]
 
 class DailiesApp(QMainWindow):
@@ -168,192 +179,6 @@ class DailiesApp(QMainWindow):
         self.load_clips()
         self.populate_filters()
         self.refresh_saved_views()
-
-    def open_transcode_dialog(self):
-        """Opens the transcode dialog for visible/selected clips."""
-        from transcoder import transcode, CODEC_MAP, CODEC_EXTENSIONS
-
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM clips")
-        all_clips = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-
-        visible_clips = []
-        for i, clip in enumerate(all_clips):
-            if not self.clip_table.isRowHidden(i):
-                visible_clips.append(clip)
-
-        if not visible_clips:
-            QMessageBox.warning(self, "Transcode", "No clips to transcode.")
-            return
-
-        # --- Transcode dialog ---
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Transcode")
-        dialog.setMinimumSize(500, 400)
-        layout = QVBoxLayout(dialog)
-
-        layout.addWidget(QLabel(f"Clips to transcode: {len(visible_clips)}"))
-
-        # Source folder
-        layout.addWidget(QLabel("Source folder (where original files are):"))
-        source_row = QHBoxLayout()
-        source_field = QLineEdit()
-        source_field.setPlaceholderText("/path/to/source/files")
-        source_browse = QPushButton("Browse")
-        source_browse.clicked.connect(lambda: source_field.setText(
-            QFileDialog.getExistingDirectory(dialog, "Select Source Folder")
-        ))
-        source_row.addWidget(source_field)
-        source_row.addWidget(source_browse)
-        layout.addLayout(source_row)
-
-        # Output folder
-        layout.addWidget(QLabel("Output folder:"))
-        output_row = QHBoxLayout()
-        output_field = QLineEdit()
-        output_field.setPlaceholderText("/path/to/output")
-        output_browse = QPushButton("Browse")
-        output_browse.clicked.connect(lambda: output_field.setText(
-            QFileDialog.getExistingDirectory(dialog, "Select Output Folder")
-        ))
-        output_row.addWidget(output_field)
-        output_row.addWidget(output_browse)
-        layout.addLayout(output_row)
-
-        # Codec
-        layout.addWidget(QLabel("Output codec:"))
-        codec_combo = QComboBox()
-        codec_combo.addItems(list(CODEC_MAP.keys()))
-        layout.addWidget(codec_combo)
-
-        # Suffix
-        layout.addWidget(QLabel("Output filename suffix (e.g. _PROXY):"))
-        suffix_field = QLineEdit()
-        suffix_field.setPlaceholderText("_PROXY")
-        layout.addWidget(suffix_field)
-
-        # CDL
-        use_cdl = QCheckBox("Apply stored CDL values")
-        use_cdl.setChecked(True)
-        layout.addWidget(use_cdl)
-
-        # Burnins
-        use_burnins = QCheckBox("Add burnins (filename + timecode)")
-        layout.addWidget(use_burnins)
-
-        # Retime
-        retime_row = QHBoxLayout()
-        use_retime = QCheckBox("Retime to FPS:")
-        retime_field = QLineEdit()
-        retime_field.setPlaceholderText("23.976")
-        retime_field.setMaximumWidth(80)
-        retime_row.addWidget(use_retime)
-        retime_row.addWidget(retime_field)
-        retime_row.addStretch()
-        layout.addLayout(retime_row)
-
-        # Progress
-        from PyQt6.QtWidgets import QProgressBar
-        progress = QProgressBar()
-        progress.setMaximum(len(visible_clips))
-        progress.setValue(0)
-        layout.addWidget(progress)
-
-        self.transcode_log = QTextEdit()
-        self.transcode_log.setReadOnly(True)
-        self.transcode_log.setMaximumHeight(100)
-        layout.addWidget(self.transcode_log)
-
-        # Buttons
-        btn_row = QHBoxLayout()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(dialog.reject)
-        go_btn = QPushButton("Start Transcode")
-        btn_row.addWidget(cancel_btn)
-        btn_row.addStretch()
-        btn_row.addWidget(go_btn)
-        layout.addLayout(btn_row)
-
-        def start_transcode():
-            source_dir = Path(source_field.text())
-            output_dir = Path(output_field.text())
-            codec = codec_combo.currentText()
-            suffix = suffix_field.text() or "_OUT"
-
-            if not source_dir.exists():
-                QMessageBox.warning(dialog, "Error", "Source folder not found.")
-                return
-            if not output_dir.exists():
-                QMessageBox.warning(dialog, "Error", "Output folder not found.")
-                return
-
-            ext = CODEC_EXTENSIONS.get(codec, ".mov")
-            done = 0
-            failed = 0
-
-            for clip in visible_clips:
-                file_name = clip.get("file_name", "")
-                source_file = source_dir / file_name
-
-                if not source_file.exists():
-                    self.transcode_log.append(f"⚠️  Not found: {file_name}")
-                    failed += 1
-                    continue
-
-                stem = Path(file_name).stem
-                output_file = output_dir / f"{stem}{suffix}{ext}"
-
-                # CDL
-                cdl = None
-                if use_cdl.isChecked() and clip.get("cdl_slope"):
-                    cdl = {
-                        "slope": clip.get("cdl_slope"),
-                        "offset": clip.get("cdl_offset"),
-                        "power": clip.get("cdl_power"),
-                        "saturation": clip.get("cdl_saturation", "1.0")
-                    }
-
-                # Burnins
-                burnins = None
-                if use_burnins.isChecked():
-                    burnins = [
-                        (file_name, ("w/2-tw/2", "h-th-20")),
-                        (clip.get("start_tc", ""), ("20", "h-th-20")),
-                    ]
-
-                # Retime
-                retime = None
-                if use_retime.isChecked() and retime_field.text():
-                    try:
-                        target_fps = float(retime_field.text())
-                        source_fps_str = clip.get("fps", "24")
-                        source_fps = float(source_fps_str) if source_fps_str else 24.0
-                        retime = target_fps / source_fps
-                    except:
-                        pass
-
-                self.transcode_log.append(f"Transcoding: {file_name}...")
-                QApplication.processEvents()
-
-                ok, msg = transcode(source_file, output_file, codec, cdl=cdl, burnins=burnins, retime=retime)
-
-                if ok:
-                    self.transcode_log.append(f"✅  Done: {output_file.name}")
-                    done += 1
-                else:
-                    self.transcode_log.append(f"❌  Failed: {file_name} — {msg[:500]}")
-                    failed += 1
-
-                progress.setValue(done + failed)
-                QApplication.processEvents()
-
-            self.transcode_log.append(f"\nFinished — {done} done, {failed} failed.")
-
-        go_btn.clicked.connect(start_transcode)
-        dialog.exec()
 
     def load_clips(self):
         """Loads all clips from the database and populates the table."""
@@ -567,6 +392,317 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         if not ok:
             return None
         return None if algorithm == "None" else algorithm.lower().replace("-", "")
+
+    def open_transcode_dialog(self):
+        """Opens the transcode dialog for visible/selected clips."""
+        from transcoder import transcode, CODEC_MAP, CODEC_EXTENSIONS
+
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM clips")
+        all_clips = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+
+        visible_clips = []
+        for i, clip in enumerate(all_clips):
+            if not self.clip_table.isRowHidden(i):
+                visible_clips.append(clip)
+
+        if not visible_clips:
+            QMessageBox.warning(self, "Transcode", "No clips to transcode.")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Transcode")
+        dialog.setMinimumSize(700, 600)
+        layout = QVBoxLayout(dialog)
+
+        layout.addWidget(QLabel(f"Clips to transcode: {len(visible_clips)}"))
+
+        # Source folder
+        layout.addWidget(QLabel("Source folder:"))
+        source_row = QHBoxLayout()
+        source_field = QLineEdit()
+        source_field.setPlaceholderText("/path/to/source/files")
+        source_browse = QPushButton("Browse")
+        source_browse.clicked.connect(lambda: source_field.setText(
+            QFileDialog.getExistingDirectory(dialog, "Select Source Folder")
+        ))
+        source_row.addWidget(source_field)
+        source_row.addWidget(source_browse)
+        layout.addLayout(source_row)
+
+        # Output folder
+        layout.addWidget(QLabel("Output folder:"))
+        output_row = QHBoxLayout()
+        output_field = QLineEdit()
+        output_field.setPlaceholderText("/path/to/output")
+        output_browse = QPushButton("Browse")
+        output_browse.clicked.connect(lambda: output_field.setText(
+            QFileDialog.getExistingDirectory(dialog, "Select Output Folder")
+        ))
+        output_row.addWidget(output_field)
+        output_row.addWidget(output_browse)
+        layout.addLayout(output_row)
+
+        # Codec
+        codec_row = QHBoxLayout()
+        codec_row.addWidget(QLabel("Output codec:"))
+        codec_combo = QComboBox()
+        codec_combo.addItems(list(CODEC_MAP.keys()))
+        codec_row.addWidget(codec_combo)
+        codec_row.addStretch()
+        layout.addLayout(codec_row)
+
+        # Suffix
+        suffix_row = QHBoxLayout()
+        suffix_row.addWidget(QLabel("Filename suffix:"))
+        suffix_field = QLineEdit()
+        suffix_field.setPlaceholderText("_PROXY")
+        suffix_field.setMaximumWidth(150)
+        suffix_row.addWidget(suffix_field)
+        suffix_row.addStretch()
+        layout.addLayout(suffix_row)
+
+        # CDL
+        use_cdl = QCheckBox("Apply stored CDL values")
+        use_cdl.setChecked(True)
+        layout.addWidget(use_cdl)
+
+        # LUTs
+        lut_group = QGroupBox("LUTs")
+        lut_layout = QVBoxLayout(lut_group)
+
+        input_lut_row = QHBoxLayout()
+        input_lut_row.addWidget(QLabel("Input LUT:"))
+        input_lut_field = QLineEdit()
+        input_lut_field.setPlaceholderText("Optional — .cube or .3dl")
+        input_lut_browse = QPushButton("Browse")
+        input_lut_browse.clicked.connect(lambda: input_lut_field.setText(
+            QFileDialog.getOpenFileName(dialog, "Select Input LUT", "", "LUT Files (*.cube *.3dl)")[0]
+        ))
+        input_lut_clear = QPushButton("Clear")
+        input_lut_clear.clicked.connect(lambda: input_lut_field.clear())
+        input_lut_row.addWidget(input_lut_field)
+        input_lut_row.addWidget(input_lut_browse)
+        input_lut_row.addWidget(input_lut_clear)
+        lut_layout.addLayout(input_lut_row)
+
+        output_lut_row = QHBoxLayout()
+        output_lut_row.addWidget(QLabel("Output LUT:"))
+        output_lut_field = QLineEdit()
+        output_lut_field.setPlaceholderText("Optional — .cube or .3dl")
+        output_lut_browse = QPushButton("Browse")
+        output_lut_browse.clicked.connect(lambda: output_lut_field.setText(
+            QFileDialog.getOpenFileName(dialog, "Select Output LUT", "", "LUT Files (*.cube *.3dl)")[0]
+        ))
+        output_lut_clear = QPushButton("Clear")
+        output_lut_clear.clicked.connect(lambda: output_lut_field.clear())
+        output_lut_row.addWidget(output_lut_field)
+        output_lut_row.addWidget(output_lut_browse)
+        output_lut_row.addWidget(output_lut_clear)
+        lut_layout.addLayout(output_lut_row)
+
+        layout.addWidget(lut_group)
+
+        # --- Burnins ---
+        burnin_group = QGroupBox("Burnins (requires ffmpeg with freetype — see setup docs)")
+        burnin_layout = QVBoxLayout(burnin_group)
+
+        # Header row
+        header_row = QHBoxLayout()
+        header_row.addWidget(QLabel("Field"), 1)
+        header_row.addWidget(QLabel("Enable"), 0)
+        header_row.addWidget(QLabel("Position"), 2)
+        burnin_layout.addLayout(header_row)
+
+        burnin_checks = {}
+        burnin_positions = {}
+        burnin_custom_field = QLineEdit()
+        burnin_custom_field.setPlaceholderText("Custom text...")
+        burnin_custom_field.setEnabled(False)
+
+        for field in BURNIN_FIELDS:
+            row = QHBoxLayout()
+            label = QLabel(field)
+            label.setMinimumWidth(100)
+            cb = QCheckBox()
+            pos_combo = QComboBox()
+            pos_combo.addItems(POSITIONS)
+            pos_combo.setCurrentText("bottom_center")
+
+            burnin_checks[field] = cb
+            burnin_positions[field] = pos_combo
+
+            row.addWidget(label, 1)
+            row.addWidget(cb, 0)
+            row.addWidget(pos_combo, 2)
+
+            if field == "Custom":
+                cb.stateChanged.connect(lambda state: burnin_custom_field.setEnabled(state == 2))
+                row.addWidget(burnin_custom_field, 2)
+
+            burnin_layout.addLayout(row)
+
+        # Style row
+        style_row = QHBoxLayout()
+        box_check = QCheckBox("Black box")
+        box_check.setChecked(True)
+        opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        opacity_slider.setRange(0, 100)
+        opacity_slider.setValue(50)
+        opacity_slider.setMaximumWidth(100)
+        opacity_label = QLabel("50%")
+        opacity_slider.valueChanged.connect(lambda v: opacity_label.setText(f"{v}%"))
+        fontsize_label = QLabel("Font size:")
+        fontsize_spin = QSpinBox()
+        fontsize_spin.setRange(12, 120)
+        fontsize_spin.setValue(36)
+        style_row.addWidget(box_check)
+        style_row.addWidget(QLabel("Opacity:"))
+        style_row.addWidget(opacity_slider)
+        style_row.addWidget(opacity_label)
+        style_row.addWidget(fontsize_label)
+        style_row.addWidget(fontsize_spin)
+        style_row.addStretch()
+        burnin_layout.addLayout(style_row)
+        layout.addWidget(burnin_group)
+
+        # Retime
+        retime_row = QHBoxLayout()
+        use_retime = QCheckBox("Retime to FPS:")
+        retime_field = QLineEdit()
+        retime_field.setPlaceholderText("23.976")
+        retime_field.setMaximumWidth(80)
+        retime_row.addWidget(use_retime)
+        retime_row.addWidget(retime_field)
+        retime_row.addStretch()
+        layout.addLayout(retime_row)
+
+        # Progress
+        progress = QProgressBar()
+        progress.setMaximum(len(visible_clips))
+        progress.setValue(0)
+        layout.addWidget(progress)
+
+        self.transcode_log = QTextEdit()
+        self.transcode_log.setReadOnly(True)
+        self.transcode_log.setMaximumHeight(100)
+        layout.addWidget(self.transcode_log)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(dialog.reject)
+        go_btn = QPushButton("Start Transcode")
+        btn_row.addWidget(cancel_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(go_btn)
+        layout.addLayout(btn_row)
+
+        def start_transcode():
+            source_dir = Path(source_field.text())
+            output_dir = Path(output_field.text())
+            codec = codec_combo.currentText()
+            suffix = suffix_field.text() or "_OUT"
+
+            if not source_dir.exists():
+                QMessageBox.warning(dialog, "Error", "Source folder not found.")
+                return
+            if not output_dir.exists():
+                QMessageBox.warning(dialog, "Error", "Output folder not found.")
+                return
+
+            ext = CODEC_EXTENSIONS.get(codec, ".mov")
+            done = 0
+            failed = 0
+
+            for clip in visible_clips:
+                file_name = clip.get("file_name", "")
+                source_file = source_dir / file_name
+
+                if not source_file.exists():
+                    self.transcode_log.append(f"⚠️  Not found: {file_name}")
+                    failed += 1
+                    continue
+
+                stem = Path(file_name).stem
+                output_file = output_dir / f"{stem}{suffix}{ext}"
+                input_lut = input_lut_field.text() or None
+                output_lut = output_lut_field.text() or None
+
+                # CDL
+                cdl = None
+                if use_cdl.isChecked() and clip.get("cdl_slope"):
+                    cdl = {
+                        "slope": clip.get("cdl_slope"),
+                        "offset": clip.get("cdl_offset"),
+                        "power": clip.get("cdl_power"),
+                        "saturation": clip.get("cdl_saturation", "1.0")
+                    }
+
+                # Burnins
+                burnin_list = []
+                field_map = {
+                    "Filename": clip.get("file_name", ""),
+                    "Timecode": clip.get("start_tc", ""),
+                    "Reel": clip.get("reel", ""),
+                    "Show": clip.get("show", ""),
+                    "Episode": clip.get("episode", ""),
+                    "Scene": clip.get("scene", ""),
+                    "Camera": clip.get("camera_id", ""),
+                    "Date": clip.get("date_recorded", ""),
+                    "Shoot Day": clip.get("date_recorded", ""),
+                    "Custom": burnin_custom_field.text(),
+                }
+                for field, cb in burnin_checks.items():
+                    if cb.isChecked():
+                        text = field_map.get(field, "")
+                        if text:
+                            burnin_list.append({
+                                "text": text,
+                                "position": burnin_positions[field].currentText(),
+                                "fontsize": fontsize_spin.value(),
+                                "box": box_check.isChecked(),
+                                "box_opacity": opacity_slider.value() / 100
+                            })
+                if burnin_list:
+                    self.transcode_log.append(f"⚠️  Burnins skipped — ffmpeg freetype not available")
+                    burnin_list = None
+
+                # Retime
+                retime = None
+                if use_retime.isChecked() and retime_field.text():
+                    try:
+                        target_fps = float(retime_field.text())
+                        source_fps_str = clip.get("fps", "24")
+                        source_fps = float(source_fps_str) if source_fps_str else 24.0
+                        retime = target_fps / source_fps
+                    except:
+                        pass
+
+                self.transcode_log.append(f"Transcoding: {file_name}...")
+                QApplication.processEvents()
+
+                ok, msg = transcode(source_file, output_file, codec, cdl=cdl,
+                                    input_lut=input_lut, output_lut=output_lut,
+                                    burnins=burnin_list, retime=retime)
+
+                if ok:
+                    self.transcode_log.append(f"✅  Done: {output_file.name}")
+                    done += 1
+                else:
+                    self.transcode_log.append(f"❌  Failed: {file_name} — {msg[:500]}")
+                    failed += 1
+
+                progress.setValue(done + failed)
+                QApplication.processEvents()
+
+            self.transcode_log.append(f"\nFinished — {done} done, {failed} failed.")
+
+        go_btn.clicked.connect(start_transcode)
+        dialog.exec()
 
     def import_csv(self):
         """Opens a file picker to select a CSV and imports it."""

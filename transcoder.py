@@ -5,7 +5,7 @@
 import subprocess
 from pathlib import Path
 
-# --- ffprobe path ---
+# --- ffmpeg path ---
 FFMPEG = "/opt/homebrew/bin/ffmpeg"
 FFPROBE = "/opt/homebrew/bin/ffprobe"
 
@@ -32,7 +32,18 @@ CODEC_EXTENSIONS = {
     "DNxHR SQ":       ".mxf",
 }
 
-def build_filter_chain(cdl=None, input_lut=None, output_lut=None, burnins=None, retime=None, pix_fmt="yuv422p10le"):
+# --- Position map for burnins ---
+POSITION_MAP = {
+    "top_left":       ("20", "20"),
+    "top_center":     ("(w-tw)/2", "20"),
+    "top_right":      ("w-tw-20", "20"),
+    "bottom_left":    ("20", "h-th-20"),
+    "bottom_center":  ("(w-tw)/2", "h-th-20"),
+    "bottom_right":   ("w-tw-20", "h-th-20"),
+}
+
+def build_filter_chain(cdl=None, input_lut=None, output_lut=None,
+                       burnins=None, retime=None, pix_fmt="yuv422p10le"):
     """Builds the ffmpeg filter chain string."""
     filters = []
 
@@ -43,17 +54,12 @@ def build_filter_chain(cdl=None, input_lut=None, output_lut=None, burnins=None, 
     if input_lut and Path(input_lut).exists():
         filters.append(f"lut3d='{input_lut}'")
 
-    # CDL via curves filter
+    # CDL
     if cdl:
         slope = cdl.get("slope", "1.0 1.0 1.0")
-        offset = cdl.get("offset", "0.0 0.0 0.0")
-        power = cdl.get("power", "1.0 1.0 1.0")
         sat = float(cdl.get("saturation", "1.0"))
 
         sr, sg, sb = [float(x) for x in slope.split()]
-        or_, og, ob = [float(x) for x in offset.split()]
-        pr, pg, pb = [float(x) for x in power.split()]
-
         filters.append(
             f"curves=r='0/0 1/{sr}':g='0/0 1/{sg}':b='0/0 1/{sb}'"
         )
@@ -70,18 +76,26 @@ def build_filter_chain(cdl=None, input_lut=None, output_lut=None, burnins=None, 
 
     # Burnins
     if burnins:
-        for text, position in burnins:
-            x, y = position
+        for burnin in burnins:
+            text = burnin.get("text", "").replace("'", "\\'").replace(":", "\\:")
+            position = burnin.get("position", "bottom_center")
+            fontsize = burnin.get("fontsize", 36)
+            box = burnin.get("box", True)
+            box_opacity = burnin.get("box_opacity", 0.5)
+
+            x, y = POSITION_MAP.get(position, ("(w-tw)/2", "h-th-20"))
+            box_str = f":box=1:boxcolor=black@{box_opacity}:boxborderw=8" if box else ""
             filters.append(
-                f"drawtext=text='{text}':fontcolor=white:fontsize=24"
-                f":box=1:boxcolor=black@0.5:boxborderw=5:x={x}:y={y}"
+                f"drawtext=text='{text}':fontcolor=white:fontsize={fontsize}{box_str}:x={x}:y={y}"
             )
 
     return ",".join(filters) if filters else None
 
+
 def transcode(source_path, output_path, codec, cdl=None,
               input_lut=None, output_lut=None, burnins=None, retime=None,
               progress_callback=None):
+    """Transcodes a single file with optional CDL, LUTs, burnins and retime."""
     source_path = Path(source_path)
     output_path = Path(output_path)
 
