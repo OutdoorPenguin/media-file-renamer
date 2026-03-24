@@ -7,7 +7,7 @@ import csv
 from datetime import datetime
 
 # --- SETTINGS — edit these before running ---
-FOLDER = Path("/Users/rachmcintire/Desktop/test_folder")
+FOLDER = Path("/Users/rachelmcintire/Desktop/test_folder")
 CAMERA = "A"       # Camera letter (A, B, C...)
 REEL = 1           # Starting reel number
 CLIP = 1           # Starting clip number

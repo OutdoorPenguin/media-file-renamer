@@ -6,8 +6,8 @@ import csv
 from pathlib import Path
 
 # --- SETTINGS ---
-LOG_FILE = Path("/Users/rachmcintire/PycharmProjects/Claude/ingest_log.csv")
-REPORT_FILE = Path("/Users/rachmcintire/PycharmProjects/Claude/ingest_report.csv")
+LOG_FILE = Path("/Users/rachelmcintire/PycharmProjects/Claude/ingest_log.csv")
+REPORT_FILE = Path("/Users/rachelmcintire/PycharmProjects/Claude/ingest_report.csv")
 
 seen_files = []  # tracks filenames already processed
 issues = []      # collects all flagged problems

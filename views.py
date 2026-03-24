@@ -4,7 +4,7 @@
 import json
 from pathlib import Path
 
-VIEWS_FILE = Path("/Users/rachmcintire/PycharmProjects/Claude/saved_views.json")
+VIEWS_FILE = Path("/Users/rachelmcintire/PycharmProjects/Claude/saved_views.json")
 
 def save_view(name, filters):
     """Saves a named filter view."""

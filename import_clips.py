@@ -9,9 +9,9 @@ from column_map import normalize_columns
 from cdl_parser import find_cdl_for_clip
 
 # --- SETTINGS ---
-CSV_FILE = Path("/Users/rachmcintire/PycharmProjects/Claude/CSV_Test.csv")
-DB_FILE = Path("/Users/rachmcintire/PycharmProjects/Claude/dailies.db")
-CDL_FOLDERS = ["/Users/rachmcintire/PycharmProjects/Claude/"]
+CSV_FILE = Path("/Users/rachelmcintire/PycharmProjects/Claude/CSV_Test.csv")
+DB_FILE = Path("/Users/rachelmcintire/PycharmProjects/Claude/dailies.db")
+CDL_FOLDERS = ["/Users/rachelmcintire/PycharmProjects/Claude/"]
 
 def load_csv(csv_file):
     """Reads a CSV file and returns a list of normalized rows."""
@@ -40,19 +40,14 @@ def import_to_db(rows, show, episode, cdl_folders=None):
             skipped += 1
             continue
 
-        # --- Duplicate check ---
-        cursor.execute("SELECT id FROM clips WHERE file_name = ?", (file_name,))
+        # --- Duplicate check (filename + show) ---
+        cursor.execute("SELECT id FROM clips WHERE file_name = ? AND show = ?", (file_name, show))
         existing = cursor.fetchone()
 
         if existing:
-            print(f"\n⚠️  DUPLICATE DETECTED: {file_name} already exists in the database.")
-            choice = input("   Overwrite? (y/n): ").strip().lower()
-            if choice != "y":
-                print(f"   Skipped.")
-                skipped += 1
-                continue
-            else:
-                cursor.execute("DELETE FROM clips WHERE file_name = ?", (file_name,))
+            skipped += 1
+            print(f"⚠️  DUPLICATE SKIPPED: {file_name}")
+            continue
 
         # --- CDL lookup ---
         cdl = None
@@ -95,9 +90,10 @@ def import_to_db(rows, show, episode, cdl_folders=None):
     conn.close()
     print(f"\n✅ Done — {added} clips added, {skipped} skipped.")
 
-# --- Run ---
-SHOW = input("Show name: ")
-EPISODE = input("Episode: ")
+# --- Run directly ---
+if __name__ == "__main__":
+    SHOW = input("Show name: ")
+    EPISODE = input("Episode: ")
 
-rows = load_csv(CSV_FILE)
-import_to_db(rows, SHOW, EPISODE, CDL_FOLDERS)
+    rows = load_csv(CSV_FILE)
+    import_to_db(rows, SHOW, EPISODE, CDL_FOLDERS)

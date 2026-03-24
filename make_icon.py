@@ -8,7 +8,7 @@ try:
     from PIL import Image, ImageDraw, ImageFont
 except ImportError:
     subprocess.run([
-        '/Users/rachmcintire/PycharmProjects/Claude/.venv/bin/pip',
+        '/Users/racelhmcintire/PycharmProjects/Claude/.venv/bin/pip',
         'install', 'Pillow'
     ])
     from PIL import Image, ImageDraw, ImageFont

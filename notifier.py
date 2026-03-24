@@ -6,7 +6,7 @@ import requests
 from dotenv import load_dotenv
 import os
 
-load_dotenv("/Users/rachmcintire/PycharmProjects/Claude/.env")
+load_dotenv("/Users/rachelmcintire/PycharmProjects/Claude/.env")
 
 # --- SETTINGS ---
 SLACK_TOKEN = os.getenv("SLACK_TOKEN")
