@@ -51,9 +51,14 @@ def build_filter_chain(cdl=None, input_lut=None, output_lut=None,
     filters.append(f"colorspace=all=bt709:iall=bt709:fast=1,format={pix_fmt}")
 
     # Input LUT
-    if input_lut and Path(input_lut).exists():
-        filters.append(f"lut3d='{input_lut}'")
-
+    if input_lut:
+        input_lut_path = Path(input_lut)
+        if input_lut_path.exists():
+            # Escape spaces and special chars in path
+            safe_path = str(input_lut_path).replace("\\", "/").replace("'", "\\'").replace(":", "\\:")
+            filters.append(f"lut3d=file='{safe_path}'")
+        else:
+            print(f"⚠️  Input LUT not found: {input_lut}")
     # CDL
     if cdl:
         slope = cdl.get("slope", "1.0 1.0 1.0")
@@ -66,9 +71,14 @@ def build_filter_chain(cdl=None, input_lut=None, output_lut=None,
         if sat != 1.0:
             filters.append(f"hue=s={sat}")
 
-    # Output LUT
-    if output_lut and Path(output_lut).exists():
-        filters.append(f"lut3d='{output_lut}'")
+        # Output LUT
+        if output_lut:
+            output_lut_path = Path(output_lut)
+            if output_lut_path.exists():
+                safe_path = str(output_lut_path).replace("\\", "/").replace("'", "\\'").replace(":", "\\:")
+                filters.append(f"lut3d=file='{safe_path}'")
+            else:
+                print(f"⚠️  Output LUT not found: {output_lut}")
 
     # Retime
     if retime and retime != 1.0:
