@@ -59,6 +59,7 @@ class DailiesApp(QMainWindow):
         self.setWindowTitle("Dailies Toolkit")
         self.setMinimumSize(1400, 800)
         self.setAcceptDrops(True)
+        self._sync_matches = {}
 
         # --- Toolbar ---
         toolbar = QToolBar("Main Toolbar")
@@ -96,6 +97,10 @@ class DailiesApp(QMainWindow):
         render_btn.clicked.connect(self.open_render_dialog)
         toolbar.addWidget(render_btn)
 
+        sync_btn = QPushButton("Sync Audio")
+        sync_btn.clicked.connect(self.open_sync_dialog)
+        toolbar.addWidget(sync_btn)
+
         # --- Main layout ---
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -107,14 +112,13 @@ class DailiesApp(QMainWindow):
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
 
-        # --- Active Show ---
         left_layout.addWidget(QLabel("Active Show"))
         self.active_show_combo = QComboBox()
         self.active_show_combo.addItem("All Shows")
         left_layout.addWidget(self.active_show_combo)
         self.active_show_combo.currentTextChanged.connect(self.set_active_show)
 
-        left_layout.addWidget(QLabel(""))  # spacer
+        left_layout.addWidget(QLabel(""))
 
         left_layout.addWidget(QLabel("Filters"))
 
@@ -154,9 +158,7 @@ class DailiesApp(QMainWindow):
         self.clip_table.setHorizontalHeaderLabels(DISPLAY_HEADERS)
         self.clip_table.horizontalHeader().setStretchLastSection(False)
         self.clip_table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
-        self.clip_table.setSelectionBehavior(
-            self.clip_table.SelectionBehavior.SelectRows
-        )
+        self.clip_table.setSelectionBehavior(self.clip_table.SelectionBehavior.SelectRows)
         self.clip_table.setSortingEnabled(True)
         center_layout.addWidget(self.clip_table)
 
@@ -194,14 +196,12 @@ class DailiesApp(QMainWindow):
         self.refresh_saved_views()
 
     def set_active_show(self, show):
-        """Sets the active show and filters the table accordingly."""
         if show == "All Shows":
             self.show_filter.setCurrentText("All")
         else:
             self.show_filter.setCurrentText(show)
 
     def load_clips(self):
-        """Loads all clips from the database and populates the table."""
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM clips")
@@ -215,7 +215,6 @@ class DailiesApp(QMainWindow):
                 self.clip_table.setItem(row_idx, col_idx, item)
 
     def filter_table(self, text):
-        """Filters the clip table based on search text."""
         for row in range(self.clip_table.rowCount()):
             match = False
             for col in range(self.clip_table.columnCount()):
@@ -226,7 +225,6 @@ class DailiesApp(QMainWindow):
             self.clip_table.setRowHidden(row, not match)
 
     def populate_filters(self):
-        """Populates filter dropdowns from the database."""
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
 
@@ -248,7 +246,6 @@ class DailiesApp(QMainWindow):
         for row in cursor.fetchall():
             self.camera_filter.addItem(row[0])
 
-        # Active show combo
         current_active = self.active_show_combo.currentText()
         self.active_show_combo.blockSignals(True)
         self.active_show_combo.clear()
@@ -267,7 +264,6 @@ class DailiesApp(QMainWindow):
         self.camera_filter.currentTextChanged.connect(self.apply_filters)
 
     def apply_filters(self):
-        """Filters the table based on dropdown selections."""
         show = self.show_filter.currentText()
         episode = self.episode_filter.currentText()
         camera = self.camera_filter.currentText()
@@ -279,13 +275,11 @@ class DailiesApp(QMainWindow):
             self.clip_table.setRowHidden(row, not (show_match and episode_match and camera_match))
 
     def clear_filters(self):
-        """Resets all filters to All."""
         self.show_filter.setCurrentText("All")
         self.episode_filter.setCurrentText("All")
         self.camera_filter.setCurrentText("All")
 
     def show_clip_details(self, row, col):
-        """Shows full clip details in the right panel when a row is clicked."""
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         file_name = self.clip_table.item(row, 1).text()
@@ -297,8 +291,7 @@ class DailiesApp(QMainWindow):
 
         if clip:
             clip_data = dict(zip(columns, clip))
-            details = f"""
-File: {clip_data.get('file_name', '')}
+            details = f"""File: {clip_data.get('file_name', '')}
 Show: {clip_data.get('show', '')}
 Episode: {clip_data.get('episode', '')}
 Scene: {clip_data.get('scene', '')}
@@ -318,10 +311,8 @@ Lens: {clip_data.get('lens_type', '')}
 Focal Length: {clip_data.get('focal_length', '')}
 ND: {clip_data.get('nd_filter', '')}
 DOP: {clip_data.get('dop', '')}
-Director: {clip_data.get('director', '')}
-            """
-            color = f"""
-Input LUT: {clip_data.get('input_lut', '')}
+Director: {clip_data.get('director', '')}"""
+            color = f"""Input LUT: {clip_data.get('input_lut', '')}
 Output LUT: {clip_data.get('output_lut', '')}
 CDL Slope: {clip_data.get('cdl_slope', '')}
 CDL Offset: {clip_data.get('cdl_offset', '')}
@@ -330,23 +321,19 @@ CDL Saturation: {clip_data.get('cdl_saturation', '')}
 
 MD5: {clip_data.get('checksum_md5', '')}
 xxHash: {clip_data.get('checksum_xxhash', '')}
-SHA-256: {clip_data.get('checksum_sha256', '')}
-            """
+SHA-256: {clip_data.get('checksum_sha256', '')}"""
             self.details_label.setText(details.strip())
             self.color_label.setText(color.strip())
 
     def dragEnterEvent(self, event):
-        """Accepts drag events for media files."""
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
 
     def dropEvent(self, event):
-        """Handles dropped media files and ingests them."""
         from folder_monitor import get_metadata, extract_video_info
 
         urls = event.mimeData().urls()
         files = [Path(url.toLocalFile()) for url in urls]
-
         MEDIA_EXTENSIONS = {".mov", ".mp4", ".mxf", ".dpx", ".exr", ".r3d"}
         media_files = [f for f in files if f.suffix.lower() in MEDIA_EXTENSIONS]
 
@@ -370,10 +357,7 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         skipped = 0
 
         for file in media_files:
-            cursor.execute(
-                "SELECT id FROM clips WHERE file_name = ? AND show = ?",
-                (file.name, show)
-            )
+            cursor.execute("SELECT id FROM clips WHERE file_name = ? AND show = ?", (file.name, show))
             if cursor.fetchone():
                 skipped += 1
                 continue
@@ -400,11 +384,8 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
                     INSERT INTO clips (file_name, show, episode, codec, resolution, fps,
                         camera_id, reel, checksum_md5, checksum_xxhash, checksum_sha256, status)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    file.name, show, episode,
-                    info["codec"], info["resolution"], info["fps"],
-                    camera, reel, checksum_md5, checksum_xxhash, checksum_sha256, "ok"
-                ))
+                """, (file.name, show, episode, info["codec"], info["resolution"], info["fps"],
+                      camera, reel, checksum_md5, checksum_xxhash, checksum_sha256, "ok"))
                 added += 1
 
         conn.commit()
@@ -414,33 +395,27 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         QMessageBox.information(self, "Ingest Complete", f"{added} clips added, {skipped} skipped.")
 
     def ask_checksum_algorithm(self):
-        """Asks the user which checksum algorithm to use."""
-        algorithm, ok = QInputDialog.getItem(
-            self, "Checksum Algorithm",
-            "Generate checksums using:",
-            ["None", "MD5", "xxHash", "SHA-256"],
-            editable=False
-        )
+        algorithm, ok = QInputDialog.getItem(self, "Checksum Algorithm",
+            "Generate checksums using:", ["None", "MD5", "xxHash", "SHA-256"], editable=False)
         if not ok:
             return None
         return None if algorithm == "None" else algorithm.lower().replace("-", "")
 
-    def open_transcode_dialog(self):
-        """Opens the transcode dialog for visible/selected clips."""
-        from transcoder import transcode, CODEC_MAP, CODEC_EXTENSIONS
-
+    def _get_visible_clips(self):
+        """Helper to get all visible clips from the database."""
         conn = sqlite3.connect(DB_FILE)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM clips")
         all_clips = [dict(row) for row in cursor.fetchall()]
         conn.close()
+        return [clip for i, clip in enumerate(all_clips) if not self.clip_table.isRowHidden(i)]
 
-        visible_clips = []
-        for i, clip in enumerate(all_clips):
-            if not self.clip_table.isRowHidden(i):
-                visible_clips.append(clip)
+    def open_transcode_dialog(self):
+        """Opens the transcode dialog for visible/selected clips."""
+        from transcoder import transcode, CODEC_MAP, CODEC_EXTENSIONS
 
+        visible_clips = self._get_visible_clips()
         if not visible_clips:
             QMessageBox.warning(self, "Transcode", "No clips to transcode.")
             return
@@ -452,33 +427,28 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
 
         layout.addWidget(QLabel(f"Clips to transcode: {len(visible_clips)}"))
 
-        # Source folder
         layout.addWidget(QLabel("Source folder:"))
         source_row = QHBoxLayout()
         source_field = QLineEdit()
         source_field.setPlaceholderText("/path/to/source/files")
         source_browse = QPushButton("Browse")
         source_browse.clicked.connect(lambda: source_field.setText(
-            QFileDialog.getExistingDirectory(dialog, "Select Source Folder")
-        ))
+            QFileDialog.getExistingDirectory(dialog, "Select Source Folder")))
         source_row.addWidget(source_field)
         source_row.addWidget(source_browse)
         layout.addLayout(source_row)
 
-        # Output folder
         layout.addWidget(QLabel("Output folder:"))
         output_row = QHBoxLayout()
         output_field = QLineEdit()
         output_field.setPlaceholderText("/path/to/output")
         output_browse = QPushButton("Browse")
         output_browse.clicked.connect(lambda: output_field.setText(
-            QFileDialog.getExistingDirectory(dialog, "Select Output Folder")
-        ))
+            QFileDialog.getExistingDirectory(dialog, "Select Output Folder")))
         output_row.addWidget(output_field)
         output_row.addWidget(output_browse)
         layout.addLayout(output_row)
 
-        # Codec
         codec_row = QHBoxLayout()
         codec_row.addWidget(QLabel("Output codec:"))
         codec_combo = QComboBox()
@@ -487,7 +457,6 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         codec_row.addStretch()
         layout.addLayout(codec_row)
 
-        # Suffix
         suffix_row = QHBoxLayout()
         suffix_row.addWidget(QLabel("Filename suffix:"))
         suffix_field = QLineEdit()
@@ -497,12 +466,10 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         suffix_row.addStretch()
         layout.addLayout(suffix_row)
 
-        # CDL
         use_cdl = QCheckBox("Apply stored CDL values")
         use_cdl.setChecked(True)
         layout.addWidget(use_cdl)
 
-        # LUTs
         lut_group = QGroupBox("LUTs")
         lut_layout = QVBoxLayout(lut_group)
 
@@ -512,8 +479,7 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         input_lut_field.setPlaceholderText("Optional — .cube or .3dl")
         input_lut_browse = QPushButton("Browse")
         input_lut_browse.clicked.connect(lambda: input_lut_field.setText(
-            QFileDialog.getOpenFileName(dialog, "Select Input LUT", "", "LUT Files (*.cube *.3dl)")[0]
-        ))
+            QFileDialog.getOpenFileName(dialog, "Select Input LUT", "", "LUT Files (*.cube *.3dl)")[0]))
         input_lut_clear = QPushButton("Clear")
         input_lut_clear.clicked.connect(lambda: input_lut_field.clear())
         input_lut_row.addWidget(input_lut_field)
@@ -527,8 +493,7 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         output_lut_field.setPlaceholderText("Optional — .cube or .3dl")
         output_lut_browse = QPushButton("Browse")
         output_lut_browse.clicked.connect(lambda: output_lut_field.setText(
-            QFileDialog.getOpenFileName(dialog, "Select Output LUT", "", "LUT Files (*.cube *.3dl)")[0]
-        ))
+            QFileDialog.getOpenFileName(dialog, "Select Output LUT", "", "LUT Files (*.cube *.3dl)")[0]))
         output_lut_clear = QPushButton("Clear")
         output_lut_clear.clicked.connect(lambda: output_lut_field.clear())
         output_lut_row.addWidget(output_lut_field)
@@ -537,10 +502,8 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         lut_layout.addLayout(output_lut_row)
         layout.addWidget(lut_group)
 
-        # --- Burnins ---
         burnin_group = QGroupBox("Burnins (requires ffmpeg with freetype — see setup docs)")
         burnin_layout = QVBoxLayout(burnin_group)
-
         header_row = QHBoxLayout()
         header_row.addWidget(QLabel("Field"), 1)
         header_row.addWidget(QLabel("Enable"), 0)
@@ -561,18 +524,14 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
             pos_combo = QComboBox()
             pos_combo.addItems(POSITIONS)
             pos_combo.setCurrentText("bottom_center")
-
             burnin_checks[field] = cb
             burnin_positions[field] = pos_combo
-
             row.addWidget(label, 1)
             row.addWidget(cb, 0)
             row.addWidget(pos_combo, 2)
-
             if field == "Custom":
                 cb.stateChanged.connect(lambda state: burnin_custom_field.setEnabled(state == 2))
                 row.addWidget(burnin_custom_field, 2)
-
             burnin_layout.addLayout(row)
 
         style_row = QHBoxLayout()
@@ -598,7 +557,6 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         burnin_layout.addLayout(style_row)
         layout.addWidget(burnin_group)
 
-        # Retime
         retime_row = QHBoxLayout()
         use_retime = QCheckBox("Retime to FPS:")
         retime_field = QLineEdit()
@@ -609,7 +567,6 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         retime_row.addStretch()
         layout.addLayout(retime_row)
 
-        # Progress
         progress = QProgressBar()
         progress.setMaximum(len(visible_clips))
         progress.setValue(0)
@@ -620,11 +577,9 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         self.transcode_log.setMaximumHeight(100)
         layout.addWidget(self.transcode_log)
 
-        # Buttons
         btn_row = QHBoxLayout()
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(dialog.reject)
-
         save_preset_btn = QPushButton("Save as Preset")
         go_btn = QPushButton("Start Transcode")
 
@@ -634,8 +589,7 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
             if active_show == "All Shows":
                 QMessageBox.warning(dialog, "No Show", "Please select an active show first.")
                 return
-            name, ok = QInputDialog.getText(dialog, "Preset Name",
-                                            f"Save preset for {active_show}:")
+            name, ok = QInputDialog.getText(dialog, "Preset Name", f"Save preset for {active_show}:")
             if not ok or not name:
                 return
             settings = {
@@ -648,13 +602,9 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
                 "output_lut": output_lut_field.text(),
                 "retime_enabled": use_retime.isChecked(),
                 "retime_fps": retime_field.text(),
-                "burnins": {
-                    field: {
-                        "enabled": cb.isChecked(),
-                        "position": burnin_positions[field].currentText()
-                    }
-                    for field, cb in burnin_checks.items()
-                },
+                "burnins": {field: {"enabled": cb.isChecked(),
+                    "position": burnin_positions[field].currentText()}
+                    for field, cb in burnin_checks.items()},
                 "fontsize": fontsize_spin.value(),
                 "box_opacity": opacity_slider.value()
             }
@@ -699,46 +649,32 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
                 input_lut = input_lut_field.text() or None
                 output_lut = output_lut_field.text() or None
 
-                # CDL
                 cdl = None
                 if use_cdl.isChecked() and clip.get("cdl_slope"):
-                    cdl = {
-                        "slope": clip.get("cdl_slope"),
-                        "offset": clip.get("cdl_offset"),
-                        "power": clip.get("cdl_power"),
-                        "saturation": clip.get("cdl_saturation", "1.0")
-                    }
+                    cdl = {"slope": clip.get("cdl_slope"), "offset": clip.get("cdl_offset"),
+                           "power": clip.get("cdl_power"), "saturation": clip.get("cdl_saturation", "1.0")}
 
-                # Burnins
                 burnin_list = []
                 field_map = {
-                    "Filename": clip.get("file_name", ""),
-                    "Timecode": clip.get("start_tc", ""),
-                    "Reel": clip.get("reel", ""),
-                    "Show": clip.get("show", ""),
-                    "Episode": clip.get("episode", ""),
-                    "Scene": clip.get("scene", ""),
-                    "Camera": clip.get("camera_id", ""),
-                    "Date": clip.get("date_recorded", ""),
-                    "Shoot Day": clip.get("date_recorded", ""),
-                    "Custom": burnin_custom_field.text(),
+                    "Filename": clip.get("file_name", ""), "Timecode": clip.get("start_tc", ""),
+                    "Reel": clip.get("reel", ""), "Show": clip.get("show", ""),
+                    "Episode": clip.get("episode", ""), "Scene": clip.get("scene", ""),
+                    "Camera": clip.get("camera_id", ""), "Date": clip.get("date_recorded", ""),
+                    "Shoot Day": clip.get("date_recorded", ""), "Custom": burnin_custom_field.text(),
                 }
                 for field, cb in burnin_checks.items():
                     if cb.isChecked():
                         text = field_map.get(field, "")
                         if text:
-                            burnin_list.append({
-                                "text": text,
+                            burnin_list.append({"text": text,
                                 "position": burnin_positions[field].currentText(),
                                 "fontsize": fontsize_spin.value(),
                                 "box": box_check.isChecked(),
-                                "box_opacity": opacity_slider.value() / 100
-                            })
+                                "box_opacity": opacity_slider.value() / 100})
                 if burnin_list:
                     self.transcode_log.append(f"⚠️  Burnins skipped — ffmpeg freetype not available")
                     burnin_list = None
 
-                # Retime
                 retime = None
                 if use_retime.isChecked() and retime_field.text():
                     try:
@@ -771,25 +707,372 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
                 QApplication.processEvents()
 
             self.transcode_log.append(f"\nFinished — {done} done, {failed} failed.")
-
             if failed == 0:
-                QMessageBox.information(dialog, "Transcode Complete",
-                                        f"✅ All {done} clips transcoded successfully.")
+                QMessageBox.information(dialog, "Transcode Complete", f"✅ All {done} clips transcoded successfully.")
             else:
                 QMessageBox.warning(dialog, "Transcode Complete",
-                                    f"Finished with issues:\n✅ {done} succeeded\n❌ {failed} failed\n\nCheck the log for details.")
+                    f"Finished with issues:\n✅ {done} succeeded\n❌ {failed} failed\n\nCheck the log for details.")
             dialog.accept()
 
         go_btn.clicked.connect(start_transcode)
+        dialog.exec()
+
+    def open_render_dialog(self):
+        """Opens the render dialog with presets for the active show."""
+        from presets import load_presets_for_show
+        from transcoder import transcode, CODEC_EXTENSIONS
+
+        active_show = self.active_show_combo.currentText()
+        if active_show == "All Shows":
+            QMessageBox.warning(self, "No Show", "Please select an active show first.")
+            return
+
+        presets = load_presets_for_show(active_show)
+        if not presets:
+            QMessageBox.warning(self, "No Presets",
+                f"No transcode presets found for {active_show}.\n\nUse the Transcode button to create and save a preset first.")
+            return
+
+        visible_clips = self._get_visible_clips()
+        if not visible_clips:
+            QMessageBox.warning(self, "Render", "No clips to render.")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Render — {active_show}")
+        dialog.setMinimumSize(600, 400)
+        layout = QVBoxLayout(dialog)
+
+        layout.addWidget(QLabel(f"Show: {active_show}"))
+        layout.addWidget(QLabel(f"Clips: {len(visible_clips)}"))
+        layout.addWidget(QLabel(""))
+        layout.addWidget(QLabel("Select presets to run:"))
+
+        preset_checks = {}
+        for preset_name, settings in presets.items():
+            row = QHBoxLayout()
+            cb = QCheckBox(preset_name)
+            cb.setChecked(True)
+            summary = QLabel(f"{settings.get('codec', '')} → {settings.get('suffix', '')}  |  CDL: {'Yes' if settings.get('use_cdl') else 'No'}  |  LUT: {'Yes' if settings.get('output_lut') else 'No'}")
+            summary.setStyleSheet("color: gray; font-size: 11px;")
+            row.addWidget(cb)
+            row.addWidget(summary)
+            row.addStretch()
+            layout.addLayout(row)
+            preset_checks[preset_name] = cb
+
+        layout.addStretch()
+
+        progress = QProgressBar()
+        progress.setMaximum(len(visible_clips) * len(presets))
+        progress.setValue(0)
+        layout.addWidget(progress)
+
+        self.transcode_log = QTextEdit()
+        self.transcode_log.setReadOnly(True)
+        self.transcode_log.setMaximumHeight(120)
+        layout.addWidget(self.transcode_log)
+
+        btn_row = QHBoxLayout()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(dialog.reject)
+        go_btn = QPushButton("Render")
+        btn_row.addWidget(cancel_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(go_btn)
+        layout.addLayout(btn_row)
+
+        def start_render():
+            total_done = 0
+            total_failed = 0
+
+            for preset_name, cb in preset_checks.items():
+                if not cb.isChecked():
+                    continue
+
+                settings = presets[preset_name]
+                codec = settings.get("codec", "ProRes 422")
+                suffix = settings.get("suffix", "_OUT")
+                source_dir = Path(settings.get("source_folder", ""))
+                output_dir = Path(settings.get("output_folder", ""))
+                ext = CODEC_EXTENSIONS.get(codec, ".mov")
+
+                if not source_dir.exists() or not output_dir.exists():
+                    self.transcode_log.append(f"⚠️  Skipping '{preset_name}' — folder not found")
+                    continue
+
+                self.transcode_log.append(f"\n--- Running preset: {preset_name} ---")
+
+                for clip in visible_clips:
+                    file_name = clip.get("file_name", "")
+                    source_file = source_dir / file_name
+
+                    if not source_file.exists():
+                        self.transcode_log.append(f"⚠️  Not found: {file_name}")
+                        total_failed += 1
+                        continue
+
+                    stem = Path(file_name).stem
+                    output_file = output_dir / f"{stem}{suffix}{ext}"
+
+                    cdl = None
+                    if settings.get("use_cdl") and clip.get("cdl_slope"):
+                        cdl = {"slope": clip.get("cdl_slope"), "offset": clip.get("cdl_offset"),
+                               "power": clip.get("cdl_power"), "saturation": clip.get("cdl_saturation", "1.0")}
+
+                    input_lut = settings.get("input_lut") or None
+                    output_lut = settings.get("output_lut") or None
+
+                    retime = None
+                    if settings.get("retime_enabled") and settings.get("retime_fps"):
+                        try:
+                            target_fps = float(settings["retime_fps"])
+                            source_fps_str = str(clip.get("fps", "24"))
+                            if "/" in source_fps_str:
+                                num, den = source_fps_str.split("/")
+                                source_fps = float(num) / float(den)
+                            else:
+                                source_fps = float(source_fps_str) if source_fps_str else 24.0
+                            retime = target_fps / source_fps
+                        except:
+                            pass
+
+                    self.transcode_log.append(f"Rendering: {file_name}...")
+                    QApplication.processEvents()
+
+                    ok, msg = transcode(source_file, output_file, codec, cdl=cdl,
+                                        input_lut=input_lut, output_lut=output_lut, retime=retime)
+
+                    if ok:
+                        self.transcode_log.append(f"✅  Done: {output_file.name}")
+                        total_done += 1
+                    else:
+                        self.transcode_log.append(f"❌  Failed: {file_name} — {msg[:200]}")
+                        total_failed += 1
+
+                    progress.setValue(total_done + total_failed)
+                    QApplication.processEvents()
+
+            self.transcode_log.append(f"\nRender complete — {total_done} done, {total_failed} failed.")
+            if total_failed == 0:
+                QMessageBox.information(dialog, "Render Complete", f"✅ All {total_done} clips rendered successfully.")
+            else:
+                QMessageBox.warning(dialog, "Render Complete",
+                    f"Finished with issues:\n✅ {total_done} succeeded\n❌ {total_failed} failed")
+            dialog.accept()
+
+        go_btn.clicked.connect(start_render)
+        dialog.exec()
+
+    def open_sync_dialog(self):
+        """Opens the audio sync dialog."""
+        from syncer import find_matching_audio, sync_audio
+
+        visible_clips = self._get_visible_clips()
+        if not visible_clips:
+            QMessageBox.warning(self, "Sync", "No clips to sync.")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Sync Audio")
+        dialog.setMinimumSize(700, 600)
+        layout = QVBoxLayout(dialog)
+
+        layout.addWidget(QLabel(f"Clips to sync: {len(visible_clips)}"))
+
+        layout.addWidget(QLabel("Video source folder:"))
+        video_row = QHBoxLayout()
+        video_field = QLineEdit()
+        video_field.setPlaceholderText("/path/to/video/files")
+        video_browse = QPushButton("Browse")
+        video_browse.clicked.connect(lambda: video_field.setText(
+            QFileDialog.getExistingDirectory(dialog, "Select Video Folder")))
+        video_row.addWidget(video_field)
+        video_row.addWidget(video_browse)
+        layout.addLayout(video_row)
+
+        layout.addWidget(QLabel("Audio folder:"))
+        audio_row = QHBoxLayout()
+        audio_field = QLineEdit()
+        audio_field.setPlaceholderText("/path/to/audio/files")
+        audio_browse = QPushButton("Browse")
+        audio_browse.clicked.connect(lambda: audio_field.setText(
+            QFileDialog.getExistingDirectory(dialog, "Select Audio Folder")))
+        audio_row.addWidget(audio_field)
+        audio_row.addWidget(audio_browse)
+        layout.addLayout(audio_row)
+
+        layout.addWidget(QLabel("Output folder:"))
+        output_row = QHBoxLayout()
+        output_field = QLineEdit()
+        output_field.setPlaceholderText("/path/to/output")
+        output_browse = QPushButton("Browse")
+        output_browse.clicked.connect(lambda: output_field.setText(
+            QFileDialog.getExistingDirectory(dialog, "Select Output Folder")))
+        output_row.addWidget(output_field)
+        output_row.addWidget(output_browse)
+        layout.addLayout(output_row)
+
+        options_row = QHBoxLayout()
+        embed_check = QCheckBox("Embed audio in video")
+        embed_check.setChecked(True)
+        replace_scratch_check = QCheckBox("Replace scratch audio")
+        replace_scratch_check.setChecked(True)
+        options_row.addWidget(embed_check)
+        options_row.addWidget(replace_scratch_check)
+        options_row.addStretch()
+        layout.addLayout(options_row)
+
+        offset_row = QHBoxLayout()
+        manual_offset_check = QCheckBox("Manual offset (frames):")
+        manual_offset_field = QLineEdit()
+        manual_offset_field.setPlaceholderText("0")
+        manual_offset_field.setMaximumWidth(80)
+        manual_offset_field.setEnabled(False)
+        manual_offset_check.stateChanged.connect(lambda state: manual_offset_field.setEnabled(state == 2))
+        offset_row.addWidget(manual_offset_check)
+        offset_row.addWidget(manual_offset_field)
+        offset_row.addStretch()
+        layout.addLayout(offset_row)
+
+        suffix_row = QHBoxLayout()
+        suffix_row.addWidget(QLabel("Output suffix:"))
+        suffix_field = QLineEdit()
+        suffix_field.setText("_SYNC")
+        suffix_field.setMaximumWidth(100)
+        suffix_row.addWidget(suffix_field)
+        suffix_row.addStretch()
+        layout.addLayout(suffix_row)
+
+        layout.addWidget(QLabel("TC Match Preview (click Scan to populate):"))
+        results_table = QTableWidget()
+        results_table.setColumnCount(4)
+        results_table.setHorizontalHeaderLabels(["Video Clip", "Matched Audio", "Offset (sec)", "Confidence"])
+        results_table.horizontalHeader().setStretchLastSection(True)
+        results_table.setMaximumHeight(150)
+        layout.addWidget(results_table)
+
+        progress = QProgressBar()
+        progress.setMaximum(len(visible_clips))
+        progress.setValue(0)
+        layout.addWidget(progress)
+
+        self.sync_log = QTextEdit()
+        self.sync_log.setReadOnly(True)
+        self.sync_log.setMaximumHeight(100)
+        layout.addWidget(self.sync_log)
+
+        btn_row = QHBoxLayout()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(dialog.reject)
+        scan_btn = QPushButton("Scan for Matches")
+        go_btn = QPushButton("Sync")
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(scan_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(go_btn)
+        layout.addLayout(btn_row)
+
+        self._sync_matches = {}
+
+        def scan_matches():
+            video_dir = Path(video_field.text())
+            audio_dir = Path(audio_field.text())
+            if not video_dir.exists() or not audio_dir.exists():
+                QMessageBox.warning(dialog, "Error", "Check folder paths.")
+                return
+
+            self._sync_matches = {}
+            results_table.setRowCount(0)
+
+            for clip in visible_clips:
+                file_name = clip.get("file_name", "")
+                video_file = video_dir / file_name
+                if not video_file.exists():
+                    continue
+
+                matches = find_matching_audio(video_file, audio_dir)
+                row = results_table.rowCount()
+                results_table.insertRow(row)
+
+                if matches:
+                    audio_file, offset, confidence = matches[0]
+                    self._sync_matches[file_name] = (audio_file, offset)
+                    results_table.setItem(row, 0, QTableWidgetItem(file_name))
+                    results_table.setItem(row, 1, QTableWidgetItem(audio_file.name))
+                    results_table.setItem(row, 2, QTableWidgetItem(f"{offset:.4f}"))
+                    results_table.setItem(row, 3, QTableWidgetItem(confidence))
+                else:
+                    results_table.setItem(row, 0, QTableWidgetItem(file_name))
+                    results_table.setItem(row, 1, QTableWidgetItem("No match found"))
+                    results_table.setItem(row, 2, QTableWidgetItem(""))
+                    results_table.setItem(row, 3, QTableWidgetItem(""))
+
+            self.sync_log.append(f"Scan complete — {len(self._sync_matches)} matches found.")
+
+        def start_sync():
+            video_dir = Path(video_field.text())
+            output_dir = Path(output_field.text())
+            suffix = suffix_field.text() or "_SYNC"
+            embed = embed_check.isChecked()
+
+            if not video_dir.exists() or not output_dir.exists():
+                QMessageBox.warning(dialog, "Error", "Check folder paths.")
+                return
+
+            if not self._sync_matches:
+                QMessageBox.warning(dialog, "No Matches", "Run Scan first to find audio matches.")
+                return
+
+            done = 0
+            failed = 0
+
+            for file_name, (audio_file, auto_offset) in self._sync_matches.items():
+                video_file = video_dir / file_name
+                stem = Path(file_name).stem
+                ext = Path(file_name).suffix
+                output_file = output_dir / f"{stem}{suffix}{ext}" if embed else output_dir / f"{stem}{suffix}.wav"
+
+                if manual_offset_check.isChecked() and manual_offset_field.text():
+                    try:
+                        offset = float(manual_offset_field.text()) / 24.0
+                    except:
+                        offset = auto_offset
+                else:
+                    offset = auto_offset
+
+                self.sync_log.append(f"Syncing: {file_name} + {audio_file.name} (offset: {offset:.4f}s)...")
+                QApplication.processEvents()
+
+                ok, msg = sync_audio(video_file, audio_file, output_file, offset_seconds=offset, embed=embed)
+
+                if ok:
+                    self.sync_log.append(f"✅  Done: {output_file.name}")
+                    done += 1
+                else:
+                    self.sync_log.append(f"❌  Failed: {file_name} — {msg[:200]}")
+                    failed += 1
+
+                progress.setValue(done + failed)
+                QApplication.processEvents()
+
+            self.sync_log.append(f"\nFinished — {done} synced, {failed} failed.")
+            if failed == 0:
+                QMessageBox.information(dialog, "Sync Complete", f"✅ All {done} clips synced successfully.")
+            else:
+                QMessageBox.warning(dialog, "Sync Complete",
+                    f"Finished:\n✅ {done} succeeded\n❌ {failed} failed")
+            dialog.accept()
+
+        scan_btn.clicked.connect(scan_matches)
+        go_btn.clicked.connect(start_sync)
         dialog.exec()
 
     def import_csv(self):
         """Opens a file picker to select a CSV and imports it."""
         from import_clips import load_csv, import_to_db
 
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select CSV File", "", "CSV Files (*.csv)"
-        )
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select CSV File", "", "CSV Files (*.csv)")
         if not file_path:
             return
 
@@ -814,18 +1097,7 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         """Opens export dialog to choose format, columns, and save location."""
         from exporters import export_csv, export_ale, export_fcp7_xml, export_fcpxml, export_edl
 
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM clips")
-        all_clips = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-
-        visible_clips = []
-        for i, clip in enumerate(all_clips):
-            if not self.clip_table.isRowHidden(i):
-                visible_clips.append(clip)
-
+        visible_clips = self._get_visible_clips()
         if not visible_clips:
             QMessageBox.warning(self, "Export", "No clips to export.")
             return
@@ -874,25 +1146,13 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
 
         filtered_clips = [{col: clip.get(col, "") for col in selected_columns} for clip in visible_clips]
 
-        format_choice, ok = QInputDialog.getItem(
-            self, "Export Format", "Choose format:",
-            ["CSV", "ALE", "FCP7 XML", "FCPXML", "EDL"],
-            editable=False
-        )
+        format_choice, ok = QInputDialog.getItem(self, "Export Format", "Choose format:",
+            ["CSV", "ALE", "FCP7 XML", "FCPXML", "EDL"], editable=False)
         if not ok:
             return
 
-        ext_map = {
-            "CSV": "*.csv",
-            "ALE": "*.ale",
-            "FCP7 XML": "*.xml",
-            "FCPXML": "*.fcpxml",
-            "EDL": "*.edl"
-        }
-
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Export", "", ext_map[format_choice]
-        )
+        ext_map = {"CSV": "*.csv", "ALE": "*.ale", "FCP7 XML": "*.xml", "FCPXML": "*.fcpxml", "EDL": "*.edl"}
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Export", "", ext_map[format_choice])
         if not file_path:
             return
 
@@ -913,25 +1173,13 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         """Verifies checksums for all visible clips that have a stored checksum."""
         from checksum import verify_checksum
 
-        file_path = QFileDialog.getExistingDirectory(
-            self, "Select folder containing media files"
-        )
+        file_path = QFileDialog.getExistingDirectory(self, "Select folder containing media files")
         if not file_path:
             return
 
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM clips")
-        all_clips = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-
-        visible_clips = []
-        for i, clip in enumerate(all_clips):
-            if not self.clip_table.isRowHidden(i):
-                visible_clips.append(clip)
-
+        visible_clips = self._get_visible_clips()
         results = []
+
         for clip in visible_clips:
             file_name = clip.get("file_name", "")
             file = Path(file_path) / file_name
@@ -946,11 +1194,9 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
                         results.append(f"✅ {file_name} — {algo.upper()} OK")
                     else:
                         results.append(f"⚠️  {file_name} — {algo.upper()} FAILED: {msg}")
-                        choice = QMessageBox.question(
-                            self, "Checksum Mismatch",
+                        choice = QMessageBox.question(self, "Checksum Mismatch",
                             f"{file_name} failed {algo.upper()} verification.\n{msg}\n\nContinue verifying?",
-                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                        )
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
                         if choice == QMessageBox.StandardButton.No:
                             break
 
@@ -973,18 +1219,7 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
 
     def run_consistency_report(self):
         """Runs a consistency check on visible clips and shows a report."""
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM clips")
-        all_clips = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-
-        visible_clips = []
-        for i, clip in enumerate(all_clips):
-            if not self.clip_table.isRowHidden(i):
-                visible_clips.append(clip)
-
+        visible_clips = self._get_visible_clips()
         if not visible_clips:
             QMessageBox.warning(self, "Report", "No clips to check.")
             return
@@ -993,23 +1228,14 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         resolutions = set(c["resolution"] for c in visible_clips if c["resolution"])
         fps_values = set(str(c["fps"]) for c in visible_clips if c["fps"])
 
-        lines = [f"Consistency Report — {len(visible_clips)} clips\n"]
-        lines.append("=" * 40)
+        lines = [f"Consistency Report — {len(visible_clips)} clips\n", "=" * 40]
 
-        if len(codecs) > 1:
-            lines.append(f"⚠️  Mixed codecs: {', '.join(codecs)}")
-        else:
-            lines.append(f"✅  Codec consistent: {', '.join(codecs)}")
-
-        if len(resolutions) > 1:
-            lines.append(f"⚠️  Mixed resolutions: {', '.join(resolutions)}")
-        else:
-            lines.append(f"✅  Resolution consistent: {', '.join(resolutions)}")
-
-        if len(fps_values) > 1:
-            lines.append(f"⚠️  Mixed frame rates: {', '.join(fps_values)}")
-        else:
-            lines.append(f"✅  Frame rate consistent: {', '.join(fps_values)}")
+        lines.append(f"⚠️  Mixed codecs: {', '.join(codecs)}" if len(codecs) > 1
+                     else f"✅  Codec consistent: {', '.join(codecs)}")
+        lines.append(f"⚠️  Mixed resolutions: {', '.join(resolutions)}" if len(resolutions) > 1
+                     else f"✅  Resolution consistent: {', '.join(resolutions)}")
+        lines.append(f"⚠️  Mixed frame rates: {', '.join(fps_values)}" if len(fps_values) > 1
+                     else f"✅  Frame rate consistent: {', '.join(fps_values)}")
 
         missing_cdl = [c["file_name"] for c in visible_clips if not c["cdl_slope"]]
         if missing_cdl:
@@ -1023,34 +1249,20 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         dialog.setWindowTitle("Consistency Report")
         dialog.setMinimumSize(500, 400)
         layout = QVBoxLayout(dialog)
-
         text = QTextEdit()
         text.setReadOnly(True)
         text.setText("\n".join(lines))
         layout.addWidget(text)
-
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(dialog.close)
         layout.addWidget(close_btn)
-
         dialog.exec()
 
     def send_to_slack(self):
         """Sends a consistency summary of visible clips to Slack."""
         from notifier import send_slack_message, build_summary
 
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM clips")
-        all_clips = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-
-        visible_clips = []
-        for i, clip in enumerate(all_clips):
-            if not self.clip_table.isRowHidden(i):
-                visible_clips.append(clip)
-
+        visible_clips = self._get_visible_clips()
         if not visible_clips:
             QMessageBox.warning(self, "Slack", "No clips to send.")
             return
@@ -1115,9 +1327,7 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
             btn = QPushButton(name)
             btn.clicked.connect(lambda checked, f=filters: self.apply_saved_view(f))
             btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            btn.customContextMenuRequested.connect(
-                lambda pos, n=name: self.show_view_context_menu(pos, n)
-            )
+            btn.customContextMenuRequested.connect(lambda pos, n=name: self.show_view_context_menu(pos, n))
             self.saved_views_layout.addWidget(btn)
 
     def show_view_context_menu(self, pos, name):
@@ -1130,11 +1340,9 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         action = menu.exec(self.cursor().pos())
 
         if action == delete_action:
-            delete_action = QMessageBox.question(
-                self, "Delete View",
+            delete_action = QMessageBox.question(self, "Delete View",
                 f"Are you sure you want to delete '{name}'?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if delete_action == QMessageBox.StandardButton.Yes:
                 delete_view(name)
                 self.refresh_saved_views()
@@ -1145,174 +1353,6 @@ SHA-256: {clip_data.get('checksum_sha256', '')}
         self.episode_filter.setCurrentText(filters.get("episode", "All"))
         self.camera_filter.setCurrentText(filters.get("camera", "All"))
         self.search_bar.setText(filters.get("search", ""))
-
-    def open_render_dialog(self):
-        """Opens the render dialog with presets for the active show."""
-        from presets import load_presets_for_show
-        from transcoder import transcode, CODEC_EXTENSIONS
-
-        active_show = self.active_show_combo.currentText()
-        if active_show == "All Shows":
-            QMessageBox.warning(self, "No Show", "Please select an active show first.")
-            return
-
-        presets = load_presets_for_show(active_show)
-        if not presets:
-            QMessageBox.warning(self, "No Presets",
-                                f"No transcode presets found for {active_show}.\n\nUse the Transcode button to create and save a preset first.")
-            return
-
-        # Get clips for active show
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM clips")
-        all_clips = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-
-        visible_clips = []
-        for i, clip in enumerate(all_clips):
-            if not self.clip_table.isRowHidden(i):
-                visible_clips.append(clip)
-
-        if not visible_clips:
-            QMessageBox.warning(self, "Render", "No clips to render.")
-            return
-
-        # --- Render dialog ---
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"Render — {active_show}")
-        dialog.setMinimumSize(600, 400)
-        layout = QVBoxLayout(dialog)
-
-        layout.addWidget(QLabel(f"Show: {active_show}"))
-        layout.addWidget(QLabel(f"Clips: {len(visible_clips)}"))
-        layout.addWidget(QLabel(""))
-        layout.addWidget(QLabel("Select presets to run:"))
-
-        preset_checks = {}
-        for preset_name, settings in presets.items():
-            row = QHBoxLayout()
-            cb = QCheckBox(preset_name)
-            cb.setChecked(True)
-            summary = QLabel(
-                f"{settings.get('codec', '')} → {settings.get('suffix', '')}  |  CDL: {'Yes' if settings.get('use_cdl') else 'No'}  |  LUT: {'Yes' if settings.get('output_lut') else 'No'}")
-            summary.setStyleSheet("color: gray; font-size: 11px;")
-            row.addWidget(cb)
-            row.addWidget(summary)
-            row.addStretch()
-            layout.addLayout(row)
-            preset_checks[preset_name] = cb
-
-        layout.addStretch()
-
-        progress = QProgressBar()
-        progress.setMaximum(len(visible_clips) * len(presets))
-        progress.setValue(0)
-        layout.addWidget(progress)
-
-        self.transcode_log = QTextEdit()
-        self.transcode_log.setReadOnly(True)
-        self.transcode_log.setMaximumHeight(120)
-        layout.addWidget(self.transcode_log)
-
-        btn_row = QHBoxLayout()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(dialog.reject)
-        go_btn = QPushButton("Render")
-        btn_row.addWidget(cancel_btn)
-        btn_row.addStretch()
-        btn_row.addWidget(go_btn)
-        layout.addLayout(btn_row)
-
-        def start_render():
-            total_done = 0
-            total_failed = 0
-
-            for preset_name, cb in preset_checks.items():
-                if not cb.isChecked():
-                    continue
-
-                settings = presets[preset_name]
-                codec = settings.get("codec", "ProRes 422")
-                suffix = settings.get("suffix", "_OUT")
-                source_dir = Path(settings.get("source_folder", ""))
-                output_dir = Path(settings.get("output_folder", ""))
-                ext = CODEC_EXTENSIONS.get(codec, ".mov")
-
-                if not source_dir.exists() or not output_dir.exists():
-                    self.transcode_log.append(f"⚠️  Skipping '{preset_name}' — folder not found")
-                    continue
-
-                self.transcode_log.append(f"\n--- Running preset: {preset_name} ---")
-
-                for clip in visible_clips:
-                    file_name = clip.get("file_name", "")
-                    source_file = source_dir / file_name
-
-                    if not source_file.exists():
-                        self.transcode_log.append(f"⚠️  Not found: {file_name}")
-                        total_failed += 1
-                        continue
-
-                    stem = Path(file_name).stem
-                    output_file = output_dir / f"{stem}{suffix}{ext}"
-
-                    cdl = None
-                    if settings.get("use_cdl") and clip.get("cdl_slope"):
-                        cdl = {
-                            "slope": clip.get("cdl_slope"),
-                            "offset": clip.get("cdl_offset"),
-                            "power": clip.get("cdl_power"),
-                            "saturation": clip.get("cdl_saturation", "1.0")
-                        }
-
-                    input_lut = settings.get("input_lut") or None
-                    output_lut = settings.get("output_lut") or None
-
-                    retime = None
-                    if settings.get("retime_enabled") and settings.get("retime_fps"):
-                        try:
-                            target_fps = float(settings["retime_fps"])
-                            source_fps_str = str(clip.get("fps", "24"))
-                            if "/" in source_fps_str:
-                                num, den = source_fps_str.split("/")
-                                source_fps = float(num) / float(den)
-                            else:
-                                source_fps = float(source_fps_str) if source_fps_str else 24.0
-                            retime = target_fps / source_fps
-                        except:
-                            pass
-
-                    self.transcode_log.append(f"Rendering: {file_name}...")
-                    QApplication.processEvents()
-
-                    ok, msg = transcode(source_file, output_file, codec, cdl=cdl,
-                                        input_lut=input_lut, output_lut=output_lut,
-                                        retime=retime)
-
-                    if ok:
-                        self.transcode_log.append(f"✅  Done: {output_file.name}")
-                        total_done += 1
-                    else:
-                        self.transcode_log.append(f"❌  Failed: {file_name} — {msg[:200]}")
-                        total_failed += 1
-
-                    progress.setValue(total_done + total_failed)
-                    QApplication.processEvents()
-
-            self.transcode_log.append(f"\nRender complete — {total_done} done, {total_failed} failed.")
-
-            if total_failed == 0:
-                QMessageBox.information(dialog, "Render Complete",
-                                        f"✅ All {total_done} clips rendered successfully.")
-            else:
-                QMessageBox.warning(dialog, "Render Complete",
-                                    f"Finished with issues:\n✅ {total_done} succeeded\n❌ {total_failed} failed")
-            dialog.accept()
-
-        go_btn.clicked.connect(start_render)
-        dialog.exec()
 
 # --- Run ---
 app = QApplication(sys.argv)
