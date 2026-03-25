@@ -1,6 +1,6 @@
 # dailies-toolkit 🎬
 
-A suite of Python tools for post-production dailies workflow. Built for film and TV — handles ingest, metadata, color, transcoding, and notifications.
+A suite of Python tools for post-production dailies workflow. Built for film and TV — handles ingest, metadata, color, transcoding, sync, and notifications.
 
 ---
 
@@ -11,12 +11,14 @@ Full desktop application for managing dailies. Features:
 - Drag and drop media ingest via ffprobe
 - CSV import from Premiere, Resolve, Avid, Silverstack, and Pomfort
 - 42-column database with search, sort, and horizontal scroll
+- Active show selector — scopes all operations to a single show
 - Filter by show, episode, and camera
 - Saved views with right-click delete
 - Consistency report — flags mixed codecs, resolutions, and frame rates
 - Checksum generation and verification (MD5, xxHash, SHA-256)
-- Transcode pipeline — ProRes, H.264, H.265, DNxHD with CDL and LUT support
-- Burnins — filename, timecode, reel, show, episode, scene, camera, date, custom text
+- Transcode pipeline with CDL, LUT (input → CDL → output), retime, and burnins
+- Show presets — save transcode configs per show and run all presets with one click
+- Audio sync dialog — TC-based matching, manual offset, scratch audio replacement
 - Slack notifications
 - Custom column export to CSV, ALE, FCP7 XML, FCPXML, and EDL
 
@@ -51,10 +53,16 @@ Sends a formatted Slack summary after ingest — show, episode, clip count, code
 Handles all export formats: CSV, ALE, FCP7 XML, FCPXML, EDL.
 
 ### 🔐 Checksum Verifier (`checksum.py`)
-Generates and verifies MD5, xxHash, and SHA-256 checksums for media files. Checksums are stored in the database and can be verified later via the Verify Files button in the app.
+Generates and verifies MD5, xxHash, and SHA-256 checksums for media files. Stored in the database and verifiable any time.
 
 ### 🎬 Transcoder (`transcoder.py`)
-Handles ffmpeg transcoding with CDL baked in, LUT application (input LUT → CDL → output LUT), burnins, and retime. Supports ProRes 422/HQ/LT/4444, H.264, H.265, DNxHD, and DNxHR.
+Handles ffmpeg transcoding with CDL baked in, LUT application (input LUT → CDL → output LUT), burnins, and retime. Supports ProRes 422/HQ/LT/4444/4444XQ, H.264, H.265, DNxHD, DNxHR SQ/HQ/HQX/444, JPEG 2000, Uncompressed 10-bit, and MXF OP1a.
+
+### 🔊 Syncer (`syncer.py`)
+Audio/video sync engine. Extracts timecode from media files via ffprobe, calculates offset between video and audio TC, and merges audio into video via ffmpeg. Supports embed or separate output, manual offset override, and scratch audio replacement.
+
+### ⚙️ Presets (`presets.py`)
+Saves and loads transcode presets per show. Configure once, render every day with one click.
 
 ### ⭐ Views (`views.py`)
 Saves and loads favorite filter combos in the app sidebar.
@@ -67,7 +75,9 @@ Saves and loads favorite filter combos in the app sidebar.
 - `pip install watchdog pandas requests python-dotenv PyQt6 Pillow xxhash`
 - DB Browser for SQLite — https://sqlitebrowser.org/dl/
 
-> **Note:** Burnins require ffmpeg compiled with freetype (`drawtext` filter). The standard Homebrew bottle does not include this. Transcoding without burnins works with the standard build.
+> **Note:** Burnins require ffmpeg compiled with freetype (`drawtext` filter). The standard Homebrew bottle does not include this. All other transcode features work with the standard build.
+
+> **Note:** TC-based audio sync requires timecode embedded in media files. Works best with MXF files from professional cameras. Sound report import (for matching via CSV) is on the roadmap.
 
 ---
 
@@ -86,4 +96,15 @@ The `.app` will appear in the `dist` folder. Zip and share — no Python needed 
 
 ---
 
-*Built by a post production professional learning Python. Still in active development — retime, batch exports, audio sync, and playback preview coming soon.*
+## Roadmap
+- Burnins — requires ffmpeg with freetype
+- Playback/preview with LUT applied
+- Sound report import for TC-based audio sync
+- Waveform-based audio sync
+- Audio channel remapping
+- Framing/resolution change (scale, crop, letterbox)
+- Timeline/visual view with context-aware rendering
+
+---
+
+*Built by a post production professional learning Python. Active development ongoing.*
