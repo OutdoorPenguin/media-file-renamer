@@ -89,6 +89,10 @@ class DailiesApp(QMainWindow):
         save_view_btn.clicked.connect(self.save_view)
         toolbar.addWidget(save_view_btn)
 
+        columns_btn = QPushButton("Columns")
+        columns_btn.clicked.connect(self.open_column_manager)
+        toolbar.addWidget(columns_btn)
+
         verify_btn = QPushButton("Verify Files")
         verify_btn.clicked.connect(self.verify_checksums)
         toolbar.addWidget(verify_btn)
@@ -168,6 +172,8 @@ class DailiesApp(QMainWindow):
         self.clip_table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
         self.clip_table.setSelectionBehavior(self.clip_table.SelectionBehavior.SelectRows)
         self.clip_table.setSortingEnabled(True)
+        self.clip_table.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.clip_table.horizontalHeader().customContextMenuRequested.connect(self.show_column_menu)
         center_layout.addWidget(self.clip_table)
 
         # Right detail panel
@@ -202,6 +208,7 @@ class DailiesApp(QMainWindow):
         self.load_clips()
         self.populate_filters()
         self.refresh_saved_views()
+        self.load_column_prefs()
 
     def set_active_show(self, show):
         if show == "All Shows":
@@ -1314,7 +1321,11 @@ SHA-256: {clip_data.get('checksum_sha256', '')}"""
             "show": self.show_filter.currentText(),
             "episode": self.episode_filter.currentText(),
             "camera": self.camera_filter.currentText(),
-            "search": self.search_bar.text()
+            "search": self.search_bar.text(),
+            "hidden_columns": [i for i in range(self.clip_table.columnCount())
+                               if self.clip_table.isColumnHidden(i)],
+            "column_order": [self.clip_table.horizontalHeader().logicalIndex(i)
+                             for i in range(self.clip_table.horizontalHeader().count())]
         }
 
         save(name, filters)
@@ -1337,6 +1348,8 @@ SHA-256: {clip_data.get('checksum_sha256', '')}"""
             btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             btn.customContextMenuRequested.connect(lambda pos, n=name: self.show_view_context_menu(pos, n))
             self.saved_views_layout.addWidget(btn)
+            self.clip_table.horizontalHeader().setSectionsMovable(True)
+            self.clip_table.horizontalHeader().sectionMoved.connect(lambda: self.save_column_prefs())
 
     def show_view_context_menu(self, pos, name):
         """Shows a right-click menu to delete a saved view."""
@@ -1361,6 +1374,15 @@ SHA-256: {clip_data.get('checksum_sha256', '')}"""
         self.episode_filter.setCurrentText(filters.get("episode", "All"))
         self.camera_filter.setCurrentText(filters.get("camera", "All"))
         self.search_bar.setText(filters.get("search", ""))
+        header = self.clip_table.horizontalHeader()
+        hidden = filters.get("hidden_columns", [])
+        for i in range(self.clip_table.columnCount()):
+            self.clip_table.setColumnHidden(i, i in hidden)
+        order = filters.get("column_order", [])
+        for visual_idx, logical_idx in enumerate(order):
+            current_visual = header.visualIndex(logical_idx)
+            if current_visual != visual_idx:
+                header.moveSection(current_visual, visual_idx)
 
     def open_sound_report_dialog(self):
         """Opens the sound report import dialog."""
@@ -1550,6 +1572,114 @@ SHA-256: {clip_data.get('checksum_sha256', '')}"""
 
         go_btn.clicked.connect(run_import)
         dialog.exec()
+
+    def show_column_menu(self, pos):
+        """Right-click on column header to show/hide that column."""
+        from PyQt6.QtWidgets import QMenu
+        header = self.clip_table.horizontalHeader()
+        col = header.logicalIndexAt(pos)
+        if col < 0:
+            return
+
+        menu = QMenu(self)
+        col_name = DISPLAY_HEADERS[col]
+        action = menu.addAction(f"Hide '{col_name}'")
+        menu.addSeparator()
+        show_all = menu.addAction("Show all columns")
+
+        chosen = menu.exec(self.clip_table.horizontalHeader().mapToGlobal(pos))
+
+        if chosen == action:
+            self.clip_table.setColumnHidden(col, True)
+            self.save_column_prefs()
+        elif chosen == show_all:
+            for i in range(self.clip_table.columnCount()):
+                self.clip_table.setColumnHidden(i, False)
+            self.save_column_prefs()
+
+    def open_column_manager(self):
+        """Opens dialog to show/hide and reorder columns."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Manage Columns")
+        dialog.setMinimumSize(400, 500)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Check columns to show. Drag to reorder (coming soon)."))
+
+        scroll = QScrollArea()
+        scroll_widget = QWidget()
+        scroll_layout = QVBoxLayout(scroll_widget)
+
+        checkboxes = {}
+        for i, header in enumerate(DISPLAY_HEADERS):
+            cb = QCheckBox(header)
+            cb.setChecked(not self.clip_table.isColumnHidden(i))
+            scroll_layout.addWidget(cb)
+            checkboxes[i] = cb
+
+        scroll.setWidget(scroll_widget)
+        scroll.setWidgetResizable(True)
+        layout.addWidget(scroll)
+
+        btn_row = QHBoxLayout()
+        select_all_btn = QPushButton("Show All")
+        select_all_btn.clicked.connect(lambda: [cb.setChecked(True) for cb in checkboxes.values()])
+        clear_all_btn = QPushButton("Hide All")
+        clear_all_btn.clicked.connect(lambda: [cb.setChecked(False) for cb in checkboxes.values()])
+        btn_row.addWidget(select_all_btn)
+        btn_row.addWidget(clear_all_btn)
+        layout.addLayout(btn_row)
+
+        ok_btn = QPushButton("Apply")
+        ok_btn.clicked.connect(dialog.accept)
+        layout.addWidget(ok_btn)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            for i, cb in checkboxes.items():
+                self.clip_table.setColumnHidden(i, not cb.isChecked())
+            self.save_column_prefs()
+
+    def save_column_prefs(self):
+        """Saves column visibility and order to a JSON file."""
+        import json
+        header = self.clip_table.horizontalHeader()
+        prefs = {
+            "hidden_columns": [i for i in range(self.clip_table.columnCount())
+                               if self.clip_table.isColumnHidden(i)],
+            "column_order": [header.logicalIndex(i) for i in range(header.count())]
+        }
+        prefs_file = Path("/Users/rachelmcintire/PycharmProjects/Claude/column_prefs.json")
+        with open(prefs_file, "w") as f:
+            json.dump(prefs, f)
+
+    def load_column_prefs(self):
+        """Loads column visibility and order from JSON file."""
+        import json
+        prefs_file = Path("/Users/rachelmcintire/PycharmProjects/Claude/column_prefs.json")
+        if not prefs_file.exists():
+            defaults_hidden = [
+                DISPLAY_HEADERS.index(h) for h in [
+                    "ID", "Cam Type", "Manufacturer", "Serial",
+                    "MD5", "xxHash", "SHA-256", "Sound TC In",
+                    "Sound TC Out", "Wild"
+                ] if h in DISPLAY_HEADERS
+            ]
+            for i in defaults_hidden:
+                self.clip_table.setColumnHidden(i, True)
+            return
+
+        try:
+            with open(prefs_file, "r") as f:
+                prefs = json.load(f)
+            for i in prefs.get("hidden_columns", []):
+                self.clip_table.setColumnHidden(i, True)
+            header = self.clip_table.horizontalHeader()
+            order = prefs.get("column_order", [])
+            for visual_idx, logical_idx in enumerate(order):
+                current_visual = header.visualIndex(logical_idx)
+                if current_visual != visual_idx:
+                    header.moveSection(current_visual, visual_idx)
+        except:
+            pass
 
 # --- Run ---
 app = QApplication(sys.argv)
