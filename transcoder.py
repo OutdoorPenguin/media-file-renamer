@@ -7,6 +7,7 @@ from pathlib import Path
 
 # --- ffmpeg path ---
 FFMPEG = "/opt/homebrew/bin/ffmpeg"
+FFMPEG_FULL = "/Applications/ffmpeg"  # has drawtext/freetype
 FFPROBE = "/opt/homebrew/bin/ffprobe"
 
 # --- Codec settings ---
@@ -158,7 +159,9 @@ def transcode(source_path, output_path, codec, cdl=None,
 
     filter_chain = build_filter_chain(cdl, input_lut, output_lut, burnins, retime, pix_fmt)
 
-    cmd = [FFMPEG, "-y", "-i", str(source_path)]
+    # Use full ffmpeg build if burnins are requested (requires freetype)
+    ffmpeg_bin = FFMPEG_FULL if burnins else FFMPEG
+    cmd = [ffmpeg_bin, "-y", "-i", str(source_path)]
 
     if filter_chain:
         cmd += ["-vf", filter_chain]

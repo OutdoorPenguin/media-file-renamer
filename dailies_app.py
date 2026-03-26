@@ -517,7 +517,7 @@ SHA-256: {clip_data.get('checksum_sha256', '')}"""
         lut_layout.addLayout(output_lut_row)
         layout.addWidget(lut_group)
 
-        burnin_group = QGroupBox("Burnins (requires ffmpeg with freetype — see setup docs)")
+        burnin_group = QGroupBox("Burnins")
         burnin_layout = QVBoxLayout(burnin_group)
         header_row = QHBoxLayout()
         header_row.addWidget(QLabel("Field"), 1)
@@ -686,9 +686,7 @@ SHA-256: {clip_data.get('checksum_sha256', '')}"""
                                 "fontsize": fontsize_spin.value(),
                                 "box": box_check.isChecked(),
                                 "box_opacity": opacity_slider.value() / 100})
-                if burnin_list:
-                    self.transcode_log.append(f"⚠️  Burnins skipped — ffmpeg freetype not available")
-                    burnin_list = None
+                # burnin_list passes through as-is — full ffmpeg handles it
 
                 retime = None
                 if use_retime.isChecked() and retime_field.text():
