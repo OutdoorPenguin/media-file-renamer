@@ -83,7 +83,7 @@ def import_sound_report(file_path, show, fps=24.0, tolerance_frames=2):
     """
     Imports a sound report CSV into the database.
     Matches rows to clips by Start TC within tolerance.
-    Returns (matched, wild, conflicts) lists for reporting.
+    Returns (matched, wild, conflicts, already_imported) lists for reporting.
     """
     rows = parse_sound_report(file_path)
 
@@ -105,13 +105,14 @@ def import_sound_report(file_path, show, fps=24.0, tolerance_frames=2):
     matched = []
     wild = []
     conflicts = []
+    already_imported = []
 
     # Get headers from first row
     if rows:
         headers = list(rows[0].keys())
     else:
         conn.close()
-        return [], [], []
+        return [], [], [], []
 
     try:
         for entry in rows:
@@ -142,13 +143,22 @@ def import_sound_report(file_path, show, fps=24.0, tolerance_frames=2):
                         matching_clips.extend(clip_list)
 
             if not matching_clips:
+                # Check if this wild take was already imported
+                cursor.execute(
+                    "SELECT id FROM clips WHERE file_name = ? AND show = ? AND is_wild = 1",
+                    (file_name, show)
+                )
+                if cursor.fetchone():
+                    already_imported.append(file_name)
+                    continue
+
                 cursor.execute("""
-                               INSERT INTO clips (file_name, show, sound_roll, sound_tc_start, sound_tc_end,
-                                                  audio_sample_rate, bit_depth, audio_channels, sound_notes,
-                                                  audio_track_names, scene, is_wild, status)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'wild')
-                               """, (file_name, show, sound_roll, start_tc, end_tc,
-                                     sample_rate, bit_depth, channels, notes, track_names, scene))
+                    INSERT INTO clips (file_name, show, sound_roll, sound_tc_start, sound_tc_end,
+                        audio_sample_rate, bit_depth, audio_channels, sound_notes,
+                        audio_track_names, scene, is_wild, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'wild')
+                """, (file_name, show, sound_roll, start_tc, end_tc,
+                      sample_rate, bit_depth, channels, notes, track_names, scene))
                 wild.append(file_name)
 
             elif len(matching_clips) > 1:
@@ -162,6 +172,11 @@ def import_sound_report(file_path, show, fps=24.0, tolerance_frames=2):
                 clip = matching_clips[0]
                 clip_id = clip["id"]
 
+                # Skip if already imported
+                if clip.get("sound_tc_start"):
+                    already_imported.append(file_name)
+                    continue
+
                 circle_take = None
                 if circled.lower() in ("x", "yes", "1", "true", "✓"):
                     circle_take = "true"
@@ -169,28 +184,28 @@ def import_sound_report(file_path, show, fps=24.0, tolerance_frames=2):
                     circle_take = clip.get("circle_take", "")
 
                 cursor.execute("""
-                               UPDATE clips
-                               SET sound_roll        = ?,
-                                   sound_tc_start    = ?,
-                                   sound_tc_end      = ?,
-                                   audio_sample_rate = ?,
-                                   bit_depth         = ?,
-                                   audio_channels    = ?,
-                                   sound_notes       = ?,
-                                   audio_track_names = ?,
-                                   circle_take       = ?
-                               WHERE id = ?
-                               """, (sound_roll, start_tc, end_tc, sample_rate, bit_depth,
-                                     channels, notes, track_names, circle_take, clip_id))
+                    UPDATE clips SET
+                        sound_roll = ?,
+                        sound_tc_start = ?,
+                        sound_tc_end = ?,
+                        audio_sample_rate = ?,
+                        bit_depth = ?,
+                        audio_channels = ?,
+                        sound_notes = ?,
+                        audio_track_names = ?,
+                        circle_take = ?
+                    WHERE id = ?
+                """, (sound_roll, start_tc, end_tc, sample_rate, bit_depth,
+                      channels, notes, track_names, circle_take, clip_id))
                 matched.append(file_name)
 
         conn.commit()
         conn.close()
-        return matched, wild, conflicts
+        return matched, wild, conflicts, already_imported
 
     except Exception as e:
         print(f"Error during import: {e}")
         import traceback
         traceback.print_exc()
         conn.close()
-        return matched, wild, conflicts
+        return matched, wild, conflicts, already_imported

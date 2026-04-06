@@ -1534,12 +1534,13 @@ SHA-256: {clip_data.get('checksum_sha256', '')}"""
             try:
                 fps = float(fps_combo.currentText())
                 tolerance = tolerance_spin.value()
-                matched, wild, conflicts = import_sound_report(
+                matched, wild, conflicts, already_imported = import_sound_report(
                     file_path, active_show, fps=fps, tolerance_frames=tolerance
                 )
 
                 results_log.clear()
                 results_log.append(f"✅ Matched: {len(matched)} clips")
+                results_log.append(f"⏭️  Already imported: {len(already_imported)} skipped")
                 results_log.append(f"🎙️ Wild/unmatched: {len(wild)} audio files")
                 results_log.append(f"⚠️  Conflicts: {len(conflicts)}")
 
@@ -1559,16 +1560,20 @@ SHA-256: {clip_data.get('checksum_sha256', '')}"""
                         results_log.append(f"  ⚠️  {c['audio_file']} @ {c['start_tc']}")
                         for m in c["matches"]:
                             results_log.append(f"      → {m}")
-                    results_log.append(f"\nConflicts were not imported — resolve manually.")
+                    results_log.append(f"\nResolving conflicts...")
+                    QApplication.processEvents()
+                    self.resolve_sound_report_conflicts(conflicts, active_show, file_path, fps)
 
                 self.load_clips()
                 self.populate_filters()
-                if not conflicts:
-                    QMessageBox.information(dialog, "Import Complete",
-                                            f"✅ {len(matched)} matched\n🎙️ {len(wild)} wild takes\n⚠️  {len(conflicts)} conflicts")
+                summary = f"✅ {len(matched)} matched\n⏭️  {len(already_imported)} already imported\n🎙️ {len(wild)} wild takes\n⚠️  {len(conflicts)} conflicts"
+
+                if not conflicts and not already_imported:
+                    QMessageBox.information(dialog, "Import Complete", summary)
                     dialog.accept()
                 else:
-                    go_btn.setText("Done")
+                    QMessageBox.information(dialog, "Import Complete", summary)
+                    go_btn.setText("Close")
                     go_btn.clicked.disconnect()
                     go_btn.clicked.connect(dialog.accept)
 
@@ -1604,43 +1609,74 @@ SHA-256: {clip_data.get('checksum_sha256', '')}"""
 
     def open_column_manager(self):
         """Opens dialog to show/hide and reorder columns."""
+        from PyQt6.QtWidgets import QListWidget, QListWidgetItem
+        from PyQt6.QtCore import Qt
+
         dialog = QDialog(self)
         dialog.setWindowTitle("Manage Columns")
-        dialog.setMinimumSize(400, 500)
+        dialog.setMinimumSize(400, 550)
         layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel("Check columns to show. Drag to reorder (coming soon)."))
+        layout.addWidget(QLabel("Check to show. Drag to reorder."))
 
-        scroll = QScrollArea()
-        scroll_widget = QWidget()
-        scroll_layout = QVBoxLayout(scroll_widget)
+        header = self.clip_table.horizontalHeader()
 
-        checkboxes = {}
-        for i, header in enumerate(DISPLAY_HEADERS):
-            cb = QCheckBox(header)
-            cb.setChecked(not self.clip_table.isColumnHidden(i))
-            scroll_layout.addWidget(cb)
-            checkboxes[i] = cb
+        # Build list in current visual order
+        list_widget = QListWidget()
+        list_widget.setDragDropMode(QListWidget.DragDropMode.InternalMove)
+        list_widget.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
 
-        scroll.setWidget(scroll_widget)
-        scroll.setWidgetResizable(True)
-        layout.addWidget(scroll)
+        for visual_idx in range(header.count()):
+            logical_idx = header.logicalIndex(visual_idx)
+            item = QListWidgetItem(DISPLAY_HEADERS[logical_idx])
+            item.setData(Qt.ItemDataRole.UserRole, logical_idx)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.CheckState.Unchecked if self.clip_table.isColumnHidden(logical_idx)
+                else Qt.CheckState.Checked
+            )
+            list_widget.addItem(item)
+
+        layout.addWidget(list_widget)
 
         btn_row = QHBoxLayout()
-        select_all_btn = QPushButton("Show All")
-        select_all_btn.clicked.connect(lambda: [cb.setChecked(True) for cb in checkboxes.values()])
-        clear_all_btn = QPushButton("Hide All")
-        clear_all_btn.clicked.connect(lambda: [cb.setChecked(False) for cb in checkboxes.values()])
-        btn_row.addWidget(select_all_btn)
-        btn_row.addWidget(clear_all_btn)
+        show_all_btn = QPushButton("Show All")
+        show_all_btn.clicked.connect(lambda: [
+            list_widget.item(i).setCheckState(Qt.CheckState.Checked)
+            for i in range(list_widget.count())
+        ])
+        hide_all_btn = QPushButton("Hide All")
+        hide_all_btn.clicked.connect(lambda: [
+            list_widget.item(i).setCheckState(Qt.CheckState.Unchecked)
+            for i in range(list_widget.count())
+        ])
+        btn_row.addWidget(show_all_btn)
+        btn_row.addWidget(hide_all_btn)
         layout.addLayout(btn_row)
 
         ok_btn = QPushButton("Apply")
         ok_btn.clicked.connect(dialog.accept)
-        layout.addWidget(ok_btn)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(dialog.reject)
+        bottom_row = QHBoxLayout()
+        bottom_row.addWidget(cancel_btn)
+        bottom_row.addStretch()
+        bottom_row.addWidget(ok_btn)
+        layout.addLayout(bottom_row)
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            for i, cb in checkboxes.items():
-                self.clip_table.setColumnHidden(i, not cb.isChecked())
+            # Apply new order and visibility
+            for visual_idx in range(list_widget.count()):
+                item = list_widget.item(visual_idx)
+                logical_idx = item.data(Qt.ItemDataRole.UserRole)
+                # Move to correct visual position
+                current_visual = header.visualIndex(logical_idx)
+                if current_visual != visual_idx:
+                    header.moveSection(current_visual, visual_idx)
+                # Set visibility
+                self.clip_table.setColumnHidden(
+                    logical_idx,
+                    item.checkState() == Qt.CheckState.Unchecked
+                )
             self.save_column_prefs()
 
     def save_column_prefs(self):
@@ -1686,6 +1722,72 @@ SHA-256: {clip_data.get('checksum_sha256', '')}"""
         except:
             pass
 
+    def resolve_sound_report_conflicts(self, conflicts, show, file_path, fps):
+        """Opens a dialog to resolve sound report TC conflicts one by one."""
+        from sound_report import import_single_match
+        import sqlite3
+
+        for conflict in conflicts:
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Resolve Conflict")
+            dialog.setMinimumSize(500, 300)
+            layout = QVBoxLayout(dialog)
+
+            layout.addWidget(QLabel(f"Audio file:"))
+            audio_label = QLabel(f"  {conflict['audio_file']}")
+            audio_label.setStyleSheet("font-weight: bold;")
+            layout.addWidget(audio_label)
+
+            layout.addWidget(QLabel(f"Start TC: {conflict['start_tc']}"))
+            layout.addWidget(QLabel(""))
+            layout.addWidget(QLabel("Multiple video clips matched this TC. Select the correct one:"))
+
+            from PyQt6.QtWidgets import QRadioButton, QButtonGroup
+            button_group = QButtonGroup()
+            radio_buttons = []
+
+            for i, match in enumerate(conflict["matches"]):
+                rb = QRadioButton(match)
+                if i == 0:
+                    rb.setChecked(True)
+                button_group.addButton(rb, i)
+                layout.addWidget(rb)
+                radio_buttons.append(rb)
+
+            skip_rb = QRadioButton("Skip this file")
+            button_group.addButton(skip_rb, len(radio_buttons))
+            layout.addWidget(skip_rb)
+
+            layout.addStretch()
+
+            btn_row = QHBoxLayout()
+            ok_btn = QPushButton("Apply")
+            ok_btn.clicked.connect(dialog.accept)
+            btn_row.addStretch()
+            btn_row.addWidget(ok_btn)
+            layout.addLayout(btn_row)
+
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                checked_id = button_group.checkedId()
+                if checked_id < len(radio_buttons):
+                    selected_clip = conflict["matches"][checked_id]
+                    # Update the selected clip with the audio data
+                    conn = sqlite3.connect(Path("/Users/rachelmcintire/PycharmProjects/Claude/dailies.db"))
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                                   UPDATE clips
+                                   SET sound_tc_start = ?,
+                                       sound_notes    = ?
+                                   WHERE file_name = ?
+                                     AND show = ?
+                                   """,
+                                   (conflict["start_tc"], f"Conflict resolved — matched to {conflict['audio_file']}",
+                                    selected_clip, show))
+                    conn.commit()
+                    conn.close()
+
+        self.load_clips()
+        QMessageBox.information(self, "Conflicts Resolved", "All conflicts have been processed.")
 # --- Run ---
 app = QApplication(sys.argv)
 window = DailiesApp()
