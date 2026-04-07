@@ -395,12 +395,27 @@ SHA-256: {clip_data.get('checksum_sha256', '')}"""
                     elif algorithm == "sha256":
                         checksum_sha256 = value
 
+                from folder_monitor import parse_date_from_filename
+                date_recorded = info.get("date_recorded") or parse_date_from_filename(file.name)
+
                 cursor.execute("""
-                    INSERT INTO clips (file_name, show, episode, codec, resolution, fps,
-                        camera_id, reel, checksum_md5, checksum_xxhash, checksum_sha256, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (file.name, show, episode, info["codec"], info["resolution"], info["fps"],
-                      camera, reel, checksum_md5, checksum_xxhash, checksum_sha256, "ok"))
+                               INSERT INTO clips (file_name, show, episode, codec, resolution, fps,
+                                                  camera_id, reel, start_tc, date_recorded, camera_type,
+                                                  camera_manufacturer, audio_codec, audio_sample_rate,
+                                                  audio_channels, bit_depth, duration,
+                                                  checksum_md5, checksum_xxhash, checksum_sha256, status)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               """, (
+                                   file.name, show, episode,
+                                   info.get("codec"), info.get("resolution"), info.get("fps"),
+                                   camera, reel,
+                                   info.get("start_tc"), date_recorded,
+                                   info.get("camera_type"), info.get("camera_manufacturer"),
+                                   info.get("audio_codec"), info.get("audio_sample_rate"),
+                                   info.get("audio_channels"), info.get("bit_depth"),
+                                   info.get("duration"),
+                                   checksum_md5, checksum_xxhash, checksum_sha256, "ok"
+                               ))
                 added += 1
 
         conn.commit()
